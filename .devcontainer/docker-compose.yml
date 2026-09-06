@@ -1,0 +1,39 @@
+name: next16-starter
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspace:cached
+    command: sleep infinity
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres_password@db:5432/app_db"
+      SMTP_HOST: "mailpit"
+      SMTP_PORT: "1025"
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password
+      POSTGRES_DB: app_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: always
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  postgres_data:
+    name: next16-starter-postgres-data

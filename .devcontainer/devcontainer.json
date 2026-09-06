@@ -1,0 +1,27 @@
+{
+  "name": "Next.js 16 Multitenant Starter",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "containerEnv": {
+    "WAYLAND_DISPLAY": "",
+    "DISPLAY": ""
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "dev.containers.mountWaylandSocket": false
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg"
+      ]
+    }
+  },
+  "forwardPorts": [3000, 5432, 8025],
+  "postCreateCommand": "pnpm --version"
+}
