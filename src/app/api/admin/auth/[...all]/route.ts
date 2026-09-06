@@ -1,3 +1,4 @@
 import { adminAuth } from "@/lib/auth";
 
-export const { GET, POST } = adminAuth.handler;
+export const GET = adminAuth.handler;
+export const POST = adminAuth.handler;

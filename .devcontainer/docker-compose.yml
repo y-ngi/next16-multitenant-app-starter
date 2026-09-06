@@ -11,7 +11,7 @@ services:
       - db
       - mailpit
     environment:
-      DATABASE_URL: ******db:5432/app
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       BETTER_AUTH_URL: http://localhost:3000
       BETTER_AUTH_SECRET: local-development-secret-change-me
   db:
