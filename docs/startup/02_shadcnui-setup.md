@@ -1,94 +1,81 @@
-その流れで進めましょう！Next.js 16 の準備はできているので、予定通り **1. shadcn/ui の導入** から順番に着手します。
+`src/app/dashboard/page.tsx` での表示確認まで無事に完了しましたね！
+
+今回の `shadcn/ui` 初期化およびダッシュボード Block 導入の完全な手順を Markdown 形式でまとめました。
 
 ---
 
-## ステップ 1: shadcn/ui の初期化
+# 🚀 shadcn/ui 導入手順書
 
-Dev Container 内の統合ターミナルで以下の初期化コマンドを実行します。
+## 1. shadcn/ui の初期化
+
+対話式コマンドを実行します。
 
 ```bash
 pnpm dlx shadcn@latest init
 
 ```
 
-実行するといくつかの設定質問が表示されます。今回のスタックに合わせて以下のように選択してください。
+プロンプトが表示されたら、以下を選択します。
 
-> **プロンプトの選択肢（推奨）:**
-> * Which style would you like to use? → **Default**（または New York）
-> * Which color would you like to use as base color? → **Slate**（お好みで Zinc や Neutral 等でも可）
-> * Would you like to use CSS variables for colors? → **yes**
-> 
-> 
+* **Select a component library**:
+👉 **`Radix UI`**
+* **Which preset would you like to use?**:
+👉 **`Sera`**（`Noto Sans` による日本語の読みやすさを確保）
 
 ---
 
-## ステップ 2: ダッシュボード（`dashboard-05`）用コンポーネントの導入
+## 2. サイドバーおよびダッシュボード Block の追加
 
-先ほど決定した `/org/[orgSlug]` 配下で使うダッシュボード UI ブロックと、共通サイドバーコンポーネントを一括追加します。
+### ① サイドバーコンポーネントの追加
 
 ```bash
-# 1. サイドバーコンポーネントの追加
 pnpm dlx shadcn@latest add sidebar
-
-# 2. dashboard-05 ブロックの追加
-pnpm dlx shadcn@latest add dashboard-05
 
 ```
 
+### ② ダッシュボード Block (dashboard-01) の追加
+
+```bash
+npx shadcn@latest add dashboard-01
+
+```
+
+> **Note**: もしレジストリパス未定義エラー等が出た場合は、以下の URL 直接指定コマンドを実行します。
+> ```bash
+> pnpm dlx shadcn@latest add "https://ui.shadcn.com/r/styles/default/dashboard-01.json"
+> 
+> ```
+> 
+> 
+
 ---
 
-## ステップ 3: 動作確認用ページの作成
+## 3. ダッシュボードページの作成と Block の呼び出し
 
-初期化が正常に完了したか確認するため、一時的に `src/app/page.tsx` で shadcn/ui のコンポーネントを表示してみます。
+追加された Block を表示するために、`src/app/dashboard/page.tsx` を作成して以下のように記述します。
 
-`src/app/page.tsx` を以下のように書き換えてみてください。
+`src/app/dashboard/page.tsx`
 
 ```tsx
-import { Button } from "@/components/ui/button";
+import Component from "@/components/dashboard-01"
 
-export default function HomePage() {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-background">
-      <div className="max-w-2xl text-center space-y-6">
-        <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
-          Next.js 16 Multitenant Starter
-        </h1>
-        <p className="text-muted-foreground text-lg">
-          shadcn/ui の導入が正常に完了しました。
-        </p>
-        <div className="flex justify-center gap-4 pt-4">
-          <Button>プライマリボタン</Button>
-          <Button variant="outline">アウトラインボタン</Button>
-        </div>
-      </div>
-    </main>
-  );
+export default function DashboardPage() {
+  return <Component />
 }
 
 ```
 
 ---
 
-## ステップ 4: 動作確認と Git コミット
+## 4. 動作確認
 
-1. 開発サーバーを起動（または起動中であることを確認）します。
+開発サーバーを起動し、ブラウザで表示を確認します。
+
 ```bash
 pnpm dev
 
 ```
 
-
-2. ブラウザで [http://localhost:3000](http://localhost:3000) にアクセスし、デザインされたボタンが表示されているか確認します。
-3. 問題なく表示できたら、Git にコミットしておきます。
-
-```bash
-git add .
-git commit -m "feat: shadcn/ui の初期化および dashboard-05 / sidebar コンポーネントの導入"
-
-```
+[http://localhost:3000/dashboard](http://localhost:3000/dashboard) にアクセスし、ダッシュボード UI が正常に描画されていることを確認します。
 
 ---
-
-ここまでのコマンド実行と動作確認はスムーズに完了できそうでしょうか？
-
-完了しましたら、次の **2. Drizzle ORM のセットアップ** へ進みます！
