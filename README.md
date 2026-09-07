@@ -23,7 +23,7 @@
 * **フレームワーク**: Next.js 16 (App Router / Turbopack)  
 * **パッケージマネージャー**: pnpm  
 * **言語・型定義**: TypeScript  
-* **スタイル & UI**: Tailwind CSS + shadcn/ui  
+* **スタイル & UI**: Tailwind CSS + Base UI + shadcn/ui  
 * **認証基盤**: Better Auth (organization プラグインを使用)  
 * **ORM (ORマッパー)**: Drizzle ORM  
 * **データベース**: PostgreSQL 16  
