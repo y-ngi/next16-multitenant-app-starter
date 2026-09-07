@@ -43,3 +43,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# .vscode フォルダ内の個人・一時ファイルを無視
+.vscode/*
+
+# チームで共有したい重要な設定ファイルは追記して許可（!）する
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json

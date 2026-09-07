@@ -1,50 +1,102 @@
-**データベース接続および Drizzle ORM のセットアップ**を進めます。
+ロールバックを踏まえた、**Drizzle ORM（PostgreSQL）導入手順書**の決定版です。
 
-Docker Compose で起動済みの PostgreSQL 16 コンテナへ接続し、Drizzle ORM を用いたスキーマ定義とマイグレーションを実行できる環境を構築します。
+pnpm v10 のセキュリティ仕様（`esbuild` のビルドブロック）をあらかじめ回避する設定を含めていますので、この通り進めればエラーなく安全にセットアップが完了します。
 
 ---
 
-## 1. 依存パッケージのインストール
+# 🗄️ Drizzle ORM 導入手順書
 
-Dev Container 内のターミナルで、Drizzle ORM および PostgreSQL ドライバ（`postgres`）と開発用ツール（`drizzle-kit`）をインストールします。
+## 1. pnpm ビルド許可設定の作成
+
+pnpm (v10以降) のセキュリティ仕様に対応するため、信頼できるビルドツール `esbuild` のスクリプト実行を許可する設定ファイルをプロジェクトルート直下に作成します。
+drizzle-kit インストール時に古いesbuildに依存してエラーが出るので、esbuildの警告が出ないように修正
+
+`pnpm-workspace.yaml`
+
+```yaml
+allowBuilds:
+  esbuild: true
+
+```
+
+---
+
+## 2. 関連パッケージのインストール
+
+Drizzle ORM と PostgreSQL クライアント、環境変数管理ツール、および開発用 CLI を一括でインストールします。
 
 ```bash
-pnpm add drizzle-orm postgres
-pnpm add -D drizzle-kit dotenv
+# 本体、ドライバー、dotenv のインストール
+pnpm add drizzle-orm postgres dotenv
+
+# 開発用ツール（CLI & TypeScript 実行環境）のインストール
+pnpm add -D drizzle-kit tsx
 
 ```
 
 ---
 
-## 2. 環境変数の設定 (`.env`)
+## 3. `.env.example` と `.env.local` の作成
 
-プロジェクト直下に `.env` ファイルを作成（または編集）し、Docker Compose（`docker-compose.yml`）で定義されている PostgreSQL の接続情報を設定します。
+環境変数のテンプレートを作成し、ローカル用の設定ファイルへコピーします。
+
+### ① `.env.example` の作成（Git 管理対象）
+
+プロジェクトルート直下に `.env.example` を作成します。
+
+`.env.example`
 
 ```env
-# .env
-DATABASE_URL="postgres://postgres:postgres@db:5432/app_db"
+# データベース接続 URL（DevContainer / ローカル PostgreSQL 用）
+DATABASE_URL="postgres://postgres:postgres@localhost:5432/my_app_db"
+
+# アプリケーション基本設定
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
 
 ```
 
-> **解説**:
-> Dev Container のネットワーク内からは、サービス名の `db`（ポート `5432`）で直接 PostgreSQL コンテナにアクセスできます。
+### ② `.env.local` へのコピー（Git 管理対象外）
+
+以下のコマンドで `.env.local` を生成します。
+
+```bash
+cp .env.example .env.local
+
+```
 
 ---
 
-## 3. Drizzle 設定ファイルの作成 (`drizzle.config.ts`)
+## 4. DevContainer 設定の更新
 
-プロジェクトルート直下に `drizzle.config.ts` を作成します。マイグレーションファイルの出力先や DB 接続情報を記述します。
+コンテナ起動時に `.env.local` が未存在の場合のみ自動生成するよう、`.devcontainer/devcontainer.json` の `postCreateCommand` を更新します。
+
+`.devcontainer/devcontainer.json`
+
+```json
+  "forwardPorts": [3000, 5432, 8025],
+  "postCreateCommand": "cp -n .env.example .env.local || true && pnpm --version"
+}
+
+```
+
+---
+
+## 5. Drizzle 設定ファイルの作成 (`drizzle.config.ts`)
+
+プロジェクトルートに `drizzle.config.ts` を作成し、`dotenv` で `.env.local` を明示的に読み込みます。
+
+`drizzle.config.ts`
 
 ```typescript
-// drizzle.config.ts
 import { defineConfig } from "drizzle-kit";
-import * as dotenv from "dotenv";
+import { config } from "dotenv";
 
-dotenv.config({ path: ".env" });
+// Next.js の .env.local を明示的にロード
+config({ path: ".env.local" });
 
 export default defineConfig({
   schema: "./src/db/schema.ts",
-  out: "./src/db/migrations",
+  out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL!,
@@ -55,102 +107,197 @@ export default defineConfig({
 
 ---
 
-## 4. DB クライアントとマルチテナント用スキーマの定義
+## 6. スキーマ定義 (`src/db/schema.ts`)
 
-`src/db/` ディレクトリを作成し、接続クライアントと初期スキーマを定義します。
+`src/db/schema.ts` を作成し、マルチテナント構造（ユーザー・組織・メンバーシップ）を定義します。
 
-### 4.1 クライアント設定 (`src/db/index.ts`)
+`src/db/schema.ts`
 
 ```typescript
-// src/db/index.ts
+import { pgTable, text, timestamp, uuid, primaryKey } from "drizzle-orm/pg-core";
+
+// 1. ユーザーテーブル
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name"),
+  email: text("email").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// 2. 組織（テナント）テーブル
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// 3. メンバーシップ（中間テーブル: User - Organization）
+export const memberships = pgTable(
+  "memberships",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.organizationId] }),
+  ]
+);
+
+```
+
+---
+
+## 7. DB クライアント接続設定 (`src/db/index.ts`)
+
+`src/db/index.ts` を作成します。
+
+`src/db/index.ts`
+
+```typescript
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-const connectionString = process.env.DATABASE_URL!;
+const connectionString = process.env.DATABASE_URL;
 
-// Node.js のグローバルキャッシュによる開発時のマルチインスタンス化防止
-const globalForDb = globalThis as unknown as {
-  conn: postgres.Sql | undefined;
-};
+if (!connectionString) {
+  throw new Error("DATABASE_URL is missing in environment variables.");
+}
 
-const conn = globalForDb.conn ?? postgres(connectionString);
-if (process.env.NODE_ENV !== "production") globalForDb.conn = conn;
-
-export const db = drizzle(conn, { schema });
+const client = postgres(connectionString);
+export const db = drizzle(client, { schema });
 
 ```
 
-### 4.2 スキーマ定義 (`src/db/schema.ts`)
+---
 
-設計方針（マルチテナント 4 テーブル構造）に基づき、基盤となる「一般ユーザー」および「テナント（組織）」のテーブルを定義します。
+## 8. 初期データ投入スクリプトの作成 (`src/db/seed.ts`)
+
+`src/db/seed.ts` を作成します。
+
+`src/db/seed.ts`
 
 ```typescript
-// src/db/schema.ts
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { config } from "dotenv";
+import { db } from "./index";
+import { users, organizations, memberships } from "./schema";
 
-// 1. 一般ユーザーテーブル（認証・人物情報に特化）
-export const generalUsers = pgTable("general_users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  email: text("email").notNull().unique(),
-  name: text("name"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+config({ path: ".env.local" });
 
-// 2. 一般テナント（組織）テーブル
-export const generalOrganizers = pgTable("general_organizers", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(), // サブドメインやURLパス識別用 (例: "acme")
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+async function main() {
+  console.log("🌱 初期データの投入を開始します...");
 
-// 3. テナント所属・権限中間テーブル
-export const generalOrganizerMemberships = pgTable("general_organizer_memberships", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: uuid("user_id").notNull().references(() => generalUsers.id, { onDelete: "cascade" }),
-  organizerId: uuid("organizer_id").notNull().references(() => generalOrganizers.id, { onDelete: "cascade" }),
-  role: text("role").notNull().default("member"), // 'owner' | 'member' | 'viewer'
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  // 1. テストユーザーの作成
+  const [user] = await db
+    .insert(users)
+    .values({
+      name: "テストユーザー",
+      email: "test@example.com",
+    })
+    .returning();
+
+  // 2. テスト組織（テナント）の作成
+  const [org] = await db
+    .insert(organizations)
+    .values({
+      name: "Acme Corp",
+      slug: "acme-corp",
+    })
+    .returning();
+
+  // 3. メンバーシップの紐付け
+  await db.insert(memberships).values({
+    userId: user.id,
+    organizationId: org.id,
+    role: "admin",
+  });
+
+  console.log("✅ 初期データの投入が完了しました！");
+  process.exit(0);
+}
+
+main().catch((err) => {
+  console.error("❌ シード実行エラー:", err);
+  process.exit(1);
 });
 
 ```
 
 ---
 
-## 5. マイグレーションの生成と実行
+## 9. `package.json` へのスクリプト追加
 
-定義したスキーマをもとに SQL マイグレーションファイルを生成し、PostgreSQL へ反映します。
+`package.json` の `scripts` 項目に Drizzle 操作および DB リセット用コマンドを追加します。
 
-```bash
-# マイグレーションSQLの生成
-pnpm drizzle-kit generate
+`package.json`
 
-# DBへの適用
-pnpm drizzle-kit migrate
+```json
+"scripts": {
+  "db:generate": "drizzle-kit generate",
+  "db:migrate": "drizzle-kit migrate",
+  "db:push": "drizzle-kit push",
+  "db:studio": "drizzle-kit studio",
+  "db:seed": "tsx src/db/seed.ts",
+  "db:reset": "pnpm db:push --force && pnpm db:seed"
+}
 
 ```
 
 ---
 
-## 6. 動作確認（Drizzle Studio または 導通確認コード）
+## 10. データベース構造の適用とシードデータの投入
 
-データベースが正しく構築されたか確認します。別ターミナルで Drizzle Studio を起動すると、ブラウザ上で GUI からテーブル構造を確認できます。
+作成したコマンドを実行し、データベースにテーブルを作成した上でサンプルデータを投入します。
 
 ```bash
-pnpm drizzle-kit studio
+# 1. スキーマ（テーブル構造）を DB に反映
+pnpm db:push
+
+# 2. 初期データを投入
+pnpm db:seed
 
 ```
 
-起動後、表示されるローカル URL（標準では `[https://local.drizzle.studio](https://local.drizzle.studio)` 等）にアクセスし、`general_users` などのテーブルが正しく作成されているか確認してください。
+---
 
-動作確認が取れたら、以下のコマンドでセットアップ状態を Git コミットします。
+## 11. 投入データの確認（データベース閲覧）
+
+データの投入確認やテーブル構造の表示には、以下の 2 つの方法が使用できます。
+
+### 方法 A: Drizzle Studio（推奨・Web GUI）
+
+専用の Web 画面でテーブル構造やレコードを直感的に確認・編集できます。
 
 ```bash
-git add .
-git commit -m "feat: Drizzle ORM のセットアップおよび初期マルチテナントスキーマの作成"
+pnpm db:studio
 
 ```
 
+* 実行後、ターミナルに表示された URL（例: `[https://local.drizzle.studio](https://local.drizzle.studio)` または指示されたローカルポートの URL）へブラウザでアクセスします。
+* `users` / `organizations` / `memberships` テーブルを選択し、`pnpm db:seed` で追加されたレコードが表示されていることを確認します。
+
+### 方法 B: VS Code 拡張機能（SQLTools）
+
+DevContainer に標準インストールされている SQLTools を使い、VS Code の画面内でデータベースを参照します。
+
+1. VS Code 左側のアクティビティバーにある **SQLTools アイコン**（データベースのマーク）を選択します。
+2. **Add new connection** をクリックし、ドライバー一覧から **PostgreSQL** を選択します。
+3. 接続設定に以下を入力して保存（Save Connection）します：
+* **Connection Name**: `Dev Container DB`
+* **Server Address**: `db`
+* **Port**: `5432`
+* **Database**: `app_db`
+* **Username**: `postgres`
+* **Password**: `postgres_password`
+
+
+4. 作成された接続をクリックして接続（Connect）し、ツリー表示からテーブルやデータを参照します。
