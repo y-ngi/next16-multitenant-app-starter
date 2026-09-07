@@ -110,7 +110,7 @@ volumes:
     }
   },
   "forwardPorts": [3000, 5432, 8025],
-  "postCreateCommand": "pnpm --version"
+  "postCreateCommand": "cp -n .env.example .env.local || true && pnpm --version"
 }
 
 ```
