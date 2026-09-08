@@ -99,16 +99,39 @@ pnpm install
 # 開発サーバー起動 (Turbopack)
 pnpm dev
 
-# DB マイグレーション生成
-pnpm drizzle-kit generate
+# DB テーブル構造の直接反映（開発用）
+pnpm db:push
 
-# DB マイグレーション実行
-pnpm drizzle-kit migrate
+# DB マイグレーションファイルの生成
+pnpm db:generate
+
+# DB マイグレーションの実行
+pnpm db:migrate
+
+# シードデータ（初期データ）の投入
+pnpm db:seed
+
+# DB の完全初期化（テーブル再作成 ＋ シードデータ投入）
+pnpm db:reset
 
 # Drizzle Studio (DB閲覧 GUI) 起動
-pnpm drizzle-kit studio
+pnpm db:studio
 
 ```
+
+> **💡 コンテナレベルで DB を完全リセットしたい場合**
+> パスワード不一致や DB 構成の根本的な不具合などで Docker ボリュームごと全削除して初期化したい場合は、以下を実行します。
+> ```bash
+> # ボリューム（データ）を含めてコンテナを削除・再起動
+> docker compose down -v && docker compose up -d
+> 
+> # テーブル作成と初期データを再投入
+> pnpm db:reset
+> 
+> ```
+> 
+>
+
 
 ---
 
