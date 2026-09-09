@@ -1,10 +1,6 @@
-Better Auth 導入手順書の Markdown です。
+# ① Better Auth 基本導入手順書
 
----
-
-# 🔐 Better Auth 導入手順書
-
-本手順書では、Next.js 16 (App Router) / Drizzle ORM / PostgreSQL 環境への **Better Auth** の組み込み手順を解説します。
+本手順書では、Next.js 16 (App Router) / Drizzle ORM / PostgreSQL 環境への **Better Auth** 基本機能（メール・パスワード認証およびセッション管理）の組み込み手順を解説します。
 
 ---
 
@@ -55,15 +51,15 @@ BETTER_AUTH_URL="http://localhost:3000"
 
 ## 3. Drizzle スキーマへの認証テーブル追加
 
-`src/db/schema.ts` に Better Auth が標準で使用する 4 つのテーブル（`user`, `session`, `account`, `verification`）を追記します。
+`src/db/schema.ts` に Better Auth が標準で使用する 4 つのテーブル（`user`, `session`, `account`, `verification`）を定義します。
 
 `src/db/schema.ts`
 
 ```typescript
-import { pgTable, text, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean } from "drizzle-orm/pg-core";
 
 // ==========================================
-// Better Auth 用テーブル定義
+// Better Auth 基本テーブル定義
 // ==========================================
 
 export const user = pgTable("user", {
@@ -71,7 +67,7 @@ export const user = pgTable("user", {
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull(),
-  image: text("image"),
+  image: text("image"), // オプション項目（OAuth連携等で使用、nullable）
   createdAt: timestamp("created_at").notNull(),
   updatedAt: timestamp("updated_at").notNull(),
 });
@@ -194,26 +190,109 @@ pnpm db:push
 
 ---
 
-## 8. 動作確認手順
+## 8. UIの実装（ログイン・ダッシュボード）
 
-1. 開発サーバーを起動します。
+### 8.1 必要な UI コンポーネントの追加 (shadcn/ui)
+
 ```bash
-pnpm dev
+pnpm dlx shadcn@latest add button card input label
 
 ```
 
+### 8.2 ログアウトボタンの実装 (`src/components/sign-out-button.tsx`)
 
-2. Drizzle Studio を起動してテーブルが正しく作成されたか確認します。
-```bash
-pnpm db:studio
+`src/components/sign-out-button.tsx`
+
+```tsx
+"use client";
+
+import { useRouter } from "next/navigation";
+import { authClient } from "@/lib/auth-client";
+import { Button } from "@/components/ui/button";
+
+export function SignOutButton() {
+  const router = useRouter();
+
+  const handleSignOut = async () => {
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          router.push("/login");
+          router.refresh();
+        },
+      },
+    });
+  };
+
+  return (
+    <Button variant="outline" onClick={handleSignOut}>
+      ログアウト
+    </Button>
+  );
+}
 
 ```
 
+### 8.3 保護されたダッシュボード画面の実装 (`src/app/dashboard/page.tsx`)
 
-* ブラウザで `user`, `session`, `account`, `verification` テーブルが追加されていることを確認します。
+`src/app/dashboard/page.tsx`
 
+```tsx
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
+import { SignOutButton } from "@/components/sign-out-button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
+export default async function DashboardPage() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) {
+    redirect("/login");
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center p-4 bg-muted/40">
+      <Card className="w-full max-w-lg">
+        <CardHeader>
+          <CardTitle>ダッシュボード</CardTitle>
+          <CardDescription>
+            ログイン中のユーザーのみアクセスできる保護されたページです。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="p-4 bg-background rounded-lg border space-y-2">
+            <div>
+              <span className="text-xs text-muted-foreground block">表示名</span>
+              <span className="font-medium">{session.user.name}</span>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground block">メールアドレス</span>
+              <span className="font-medium">{session.user.email}</span>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground block">ユーザーID</span>
+              <span className="text-xs font-mono">{session.user.id}</span>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <SignOutButton />
+          </div>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+```
 
 ---
-
-次はこの手順に続けて、**「ログイン・新規登録画面 UI の実装（shadcn/ui）」** や **「OAuth（Google / GitHub）追加」** の手順を作成できますが、どちらから進めましょうか？
