@@ -14,7 +14,8 @@
 !.yarn/versions
 
 # testing
-/coverage
+/coverage/
+*.lcov
 
 # next.js
 /.next/
