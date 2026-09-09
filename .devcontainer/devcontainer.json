@@ -16,5 +16,8 @@
     }
   },
   "forwardPorts": [3000, 5432, 8025],
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
   "postCreateCommand": "cp -n .env.example .env.local || true && pnpm --version"
 }
