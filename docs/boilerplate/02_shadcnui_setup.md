@@ -1,5 +1,3 @@
-`src/app/dashboard/page.tsx` での表示確認まで無事に完了しましたね！
-
 今回の `shadcn/ui` 初期化およびダッシュボード Block 導入の完全な手順を Markdown 形式でまとめました。
 
 ---
