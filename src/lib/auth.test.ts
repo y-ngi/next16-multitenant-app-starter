@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // 1. vi.hoisted() 内でモック関数と設定保持用オブジェクト（refs）をまとめて巻き上げる
 const { mockSendMail, refs } = vi.hoisted(() => {
@@ -12,7 +12,7 @@ const { mockSendMail, refs } = vi.hoisted(() => {
 });
 
 // 2. nodemailer のモック設定
-vi.mock("nodemailer", () => ({
+vi.mock('nodemailer', () => ({
   default: {
     createTransport: vi.fn(() => ({
       sendMail: mockSendMail,
@@ -21,7 +21,7 @@ vi.mock("nodemailer", () => ({
 }));
 
 // 3. better-auth のモック（refs オブジェクトに設定を退避）
-vi.mock("better-auth", () => ({
+vi.mock('better-auth', () => ({
   betterAuth: vi.fn((config) => {
     refs.capturedAuthConfig = config;
     return {
@@ -31,24 +31,24 @@ vi.mock("better-auth", () => ({
   }),
 }));
 
-vi.mock("better-auth/plugins", () => ({
+vi.mock('better-auth/plugins', () => ({
   twoFactor: vi.fn((options) => {
     refs.capturedOtpOptions = options?.otpOptions;
-    return { id: "two-factor" };
+    return { id: 'two-factor' };
   }),
 }));
 
 // 依存モジュールのモック（DBアクセスを回避）
-vi.mock("better-auth/adapters/drizzle", () => ({
+vi.mock('better-auth/adapters/drizzle', () => ({
   drizzleAdapter: vi.fn(),
 }));
-vi.mock("@/db", () => ({ db: {} }));
-vi.mock("@/db/schema", () => ({}));
+vi.mock('@/db', () => ({ db: {} }));
+vi.mock('@/db/schema', () => ({}));
 
 // モック定義完了後にインポート
-import "@/lib/auth";
+import '@/lib/auth';
 
-describe("src/lib/auth.ts", () => {
+describe('src/lib/auth.ts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -56,17 +56,15 @@ describe("src/lib/auth.ts", () => {
   // -------------------------------------------------------------
   // Test 1: databaseHooks (ユーザー作成時に 2FA フラグを強制付与)
   // -------------------------------------------------------------
-  describe("databaseHooks.user.create.before", () => {
-    it("新規ユーザー作成時に twoFactorEnabled: true を自動注入すること", async () => {
+  describe('databaseHooks.user.create.before', () => {
+    it('新規ユーザー作成時に twoFactorEnabled: true を自動注入すること', async () => {
       const mockUser = {
-        id: "user-123",
-        name: "テスト太郎",
-        email: "test@example.com",
+        id: 'user-123',
+        name: 'テスト太郎',
+        email: 'test@example.com',
       };
 
-      const result = await refs.capturedAuthConfig.databaseHooks.user.create.before(
-        mockUser
-      );
+      const result = await refs.capturedAuthConfig.databaseHooks.user.create.before(mockUser);
 
       expect(result).toEqual({
         data: {
@@ -80,12 +78,12 @@ describe("src/lib/auth.ts", () => {
   // -------------------------------------------------------------
   // Test 2: emailVerification (新規登録時の確認メール送信)
   // -------------------------------------------------------------
-  describe("emailVerification.sendVerificationEmail", () => {
-    it("正しい宛先・件名・認証URLを含むメールを nodemailer 経由で送信すること", async () => {
-      mockSendMail.mockResolvedValueOnce({ messageId: "msg-001" });
+  describe('emailVerification.sendVerificationEmail', () => {
+    it('正しい宛先・件名・認証URLを含むメールを nodemailer 経由で送信すること', async () => {
+      mockSendMail.mockResolvedValueOnce({ messageId: 'msg-001' });
 
-      const user = { name: "テスト太郎", email: "user@example.com" };
-      const url = "http://localhost:3000/api/auth/verify-email?token=xyz123";
+      const user = { name: 'テスト太郎', email: 'user@example.com' };
+      const url = 'http://localhost:3000/api/auth/verify-email?token=xyz123';
 
       await refs.capturedAuthConfig.emailVerification.sendVerificationEmail({
         user,
@@ -96,27 +94,25 @@ describe("src/lib/auth.ts", () => {
       expect(mockSendMail).toHaveBeenCalledWith(
         expect.objectContaining({
           from: '"認証システム" <noreply@example.com>',
-          to: "user@example.com",
-          subject: "【メールアドレスの確認】アカウント登録手続き",
+          to: 'user@example.com',
+          subject: '【メールアドレスの確認】アカウント登録手続き',
           html: expect.stringContaining(url),
-        })
+        }),
       );
     });
 
-    it("メール送信失敗時にエラーがログ出力され、例外がスローされないこと", async () => {
-      const consoleErrorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
-      mockSendMail.mockRejectedValueOnce(new Error("SMTP Connection Failed"));
+    it('メール送信失敗時にエラーがログ出力され、例外がスローされないこと', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockSendMail.mockRejectedValueOnce(new Error('SMTP Connection Failed'));
 
-      const user = { name: "テスト太郎", email: "user@example.com" };
-      const url = "http://localhost:3000/api/auth/verify-email?token=xyz123";
+      const user = { name: 'テスト太郎', email: 'user@example.com' };
+      const url = 'http://localhost:3000/api/auth/verify-email?token=xyz123';
 
       await expect(
         refs.capturedAuthConfig.emailVerification.sendVerificationEmail({
           user,
           url,
-        })
+        }),
       ).resolves.not.toThrow();
 
       expect(consoleErrorSpy).toHaveBeenCalled();
@@ -127,12 +123,12 @@ describe("src/lib/auth.ts", () => {
   // -------------------------------------------------------------
   // Test 3: twoFactor.sendOTP (2FA ログイン時の OTP メール送信)
   // -------------------------------------------------------------
-  describe("twoFactor.sendOTP", () => {
-    it("6桁の OTP コードを含むメールを nodemailer 経由で送信すること", async () => {
-      mockSendMail.mockResolvedValueOnce({ messageId: "msg-002" });
+  describe('twoFactor.sendOTP', () => {
+    it('6桁の OTP コードを含むメールを nodemailer 経由で送信すること', async () => {
+      mockSendMail.mockResolvedValueOnce({ messageId: 'msg-002' });
 
-      const user = { email: "user@example.com" };
-      const otp = "654321";
+      const user = { email: 'user@example.com' };
+      const otp = '654321';
 
       await refs.capturedOtpOptions.sendOTP({ user, otp });
 
@@ -140,11 +136,11 @@ describe("src/lib/auth.ts", () => {
       expect(mockSendMail).toHaveBeenCalledWith(
         expect.objectContaining({
           from: '"認証システム" <noreply@example.com>',
-          to: "user@example.com",
-          subject: "【ログイン認証コード】2段階認証のご案内",
-          text: expect.stringContaining("654321"),
-          html: expect.stringContaining("654321"),
-        })
+          to: 'user@example.com',
+          subject: '【ログイン認証コード】2段階認証のご案内',
+          text: expect.stringContaining('654321'),
+          html: expect.stringContaining('654321'),
+        }),
       );
     });
   });

@@ -13,13 +13,7 @@
       "settings": {
         "dev.containers.mountWaylandSocket": false
       },
-      "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-
-        "mtxr.sqltools",
-        "mtxr.sqltools-driver-pg"
-      ]
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "mtxr.sqltools", "mtxr.sqltools-driver-pg"]
     }
   },
   "forwardPorts": [3000, 5432, 8025],

@@ -1,19 +1,12 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { authClient, twoFactor } from "@/lib/auth-client";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { authClient, twoFactor } from '@/lib/auth-client';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 export function AuthForm() {
   const router = useRouter();
@@ -23,10 +16,10 @@ export function AuthForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [otpCode, setOtpCode] = useState("");
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,10 +33,10 @@ export function AuthForm() {
       });
 
       if (res.error) {
-        setError(res.error.message || "認証コードが正しくありません");
+        setError(res.error.message || '認証コードが正しくありません');
         setLoading(false);
       } else {
-        router.push("/dashboard");
+        router.push('/dashboard');
         router.refresh();
       }
       return;
@@ -55,11 +48,11 @@ export function AuthForm() {
         email,
         password,
         name: displayName,
-        callbackURL: "/login", // ← ここに callbackURL を追加！
+        callbackURL: '/login', // ← ここに callbackURL を追加！
       });
 
       if (res.error) {
-        setError(res.error.message || "登録に失敗しました");
+        setError(res.error.message || '登録に失敗しました');
         setLoading(false);
         return;
       }
@@ -67,7 +60,7 @@ export function AuthForm() {
       // もし sendOnSignUp が自動発火しない環境の保険として、明示的に検証メール送信を呼び出すことも可能
       await authClient.sendVerificationEmail({
         email,
-        callbackURL: "/login",
+        callbackURL: '/login',
       });
 
       // 新規登録成功後、メール案内画面を表示
@@ -81,20 +74,20 @@ export function AuthForm() {
       });
 
       if (res.error) {
-        if (res.error.message?.includes("not verified")) {
-          setError("メールアドレスがまだ検証されていません。Mailpitを確認してください。");
+        if (res.error.message?.includes('not verified')) {
+          setError('メールアドレスがまだ検証されていません。Mailpitを確認してください。');
         } else {
-          setError(res.error.message || "ログインに失敗しました");
+          setError(res.error.message || 'ログインに失敗しました');
         }
         setLoading(false);
         return;
       }
 
       // メール検証済みユーザーであれば 2FA チャレンジが発生する
-      if (res.data && "twoFactorRedirect" in res.data && res.data.twoFactorRedirect) {
+      if (res.data && 'twoFactorRedirect' in res.data && res.data.twoFactorRedirect) {
         const otpRes = await twoFactor.sendOtp();
         if (otpRes.error) {
-          setError("2FAコードの送信に失敗しました: " + otpRes.error.message);
+          setError('2FAコードの送信に失敗しました: ' + otpRes.error.message);
           setLoading(false);
           return;
         }
@@ -102,7 +95,7 @@ export function AuthForm() {
         setIsOtpStep(true);
         setLoading(false);
       } else {
-        router.push("/dashboard");
+        router.push('/dashboard');
         router.refresh();
       }
     }
@@ -111,16 +104,18 @@ export function AuthForm() {
   // メール送信完了案内の UI
   if (isEmailSentStep) {
     return (
-      <Card className="w-full max-w-md mx-auto text-center">
+      <Card className="mx-auto w-full max-w-md text-center">
         <CardHeader>
           <CardTitle>仮登録が完了しました</CardTitle>
-          <CardDescription>
-            ご入力いただいたメールアドレス（{email}）宛てに確認メールを送信しました。
-          </CardDescription>
+          <CardDescription>ご入力いただいたメールアドレス（{email}）宛てに確認メールを送信しました。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Mailpit（<a href="http://localhost:8025" target="_blank" rel="noreferrer" className="text-primary underline">http://localhost:8025</a>）を開き、届いたメールの「メールアドレスを検証する」ボタンをクリックして登録を完了させてください。
+          <p className="text-muted-foreground text-sm">
+            Mailpit（
+            <a href="http://localhost:8025" target="_blank" rel="noreferrer" className="text-primary underline">
+              http://localhost:8025
+            </a>
+            ）を開き、届いたメールの「メールアドレスを検証する」ボタンをクリックして登録を完了させてください。
           </p>
         </CardContent>
         <CardFooter>
@@ -140,30 +135,20 @@ export function AuthForm() {
   }
 
   return (
-    <Card className="w-full max-w-md mx-auto">
+    <Card className="mx-auto w-full max-w-md">
       <CardHeader>
-        <CardTitle>
-          {isOtpStep
-            ? "2段階認証コードの入力"
-            : isSignUp
-            ? "アカウント作成"
-            : "ログイン"}
-        </CardTitle>
+        <CardTitle>{isOtpStep ? '2段階認証コードの入力' : isSignUp ? 'アカウント作成' : 'ログイン'}</CardTitle>
         <CardDescription>
           {isOtpStep
-            ? "メールアドレスに送信された 6 桁の 2FA 認証コードを入力してください"
+            ? 'メールアドレスに送信された 6 桁の 2FA 認証コードを入力してください'
             : isSignUp
-            ? "必要な情報を入力してアカウントを作成してください"
-            : "登録済みのメールアドレスとパスワードを入力してください"}
+              ? '必要な情報を入力してアカウントを作成してください'
+              : '登録済みのメールアドレスとパスワードを入力してください'}
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
-          {error && (
-            <div className="p-3 text-sm text-white bg-destructive rounded-md">
-              {error}
-            </div>
-          )}
+          {error && <div className="bg-destructive rounded-md p-3 text-sm text-white">{error}</div>}
 
           {isOtpStep ? (
             <div className="space-y-2">
@@ -222,13 +207,7 @@ export function AuthForm() {
 
         <CardFooter className="flex flex-col space-y-4">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading
-              ? "処理中..."
-              : isOtpStep
-              ? "認証してログイン"
-              : isSignUp
-              ? "アカウント作成"
-              : "ログイン"}
+            {loading ? '処理中...' : isOtpStep ? '認証してログイン' : isSignUp ? 'アカウント作成' : 'ログイン'}
           </Button>
 
           {!isOtpStep && (
@@ -241,9 +220,7 @@ export function AuthForm() {
                 setError(null);
               }}
             >
-              {isSignUp
-                ? "すでにアカウントをお持ちの方（ログイン）"
-                : "アカウントをお持ちでない方（新規登録）"}
+              {isSignUp ? 'すでにアカウントをお持ちの方（ログイン）' : 'アカウントをお持ちでない方（新規登録）'}
             </Button>
           )}
         </CardFooter>

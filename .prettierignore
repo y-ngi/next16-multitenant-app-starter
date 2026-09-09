@@ -1,0 +1,14 @@
+.next/
+coverage/
+node_modules/
+out/
+build/
+pnpm-lock.yaml
+
+# shadcn/ui のコンポーネントを除外 (プロジェクト構造に合わせて指定)
+src/components/ui/
+components/ui/
+
+# すべての Markdown ファイルを除外
+*.md
+**/*.md

@@ -1,20 +1,20 @@
-import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { twoFactor } from "better-auth/plugins";
-import nodemailer from "nodemailer";
-import { db } from "@/db";
-import * as schema from "@/db/schema";
+import { betterAuth } from 'better-auth';
+import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { twoFactor } from 'better-auth/plugins';
+import nodemailer from 'nodemailer';
+import { db } from '@/db';
+import * as schema from '@/db/schema';
 
 // Mailpit 接続用 SMTP トランスポーター
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "localhost",
+  host: process.env.SMTP_HOST || 'localhost',
   port: Number(process.env.SMTP_PORT) || 1025,
   secure: false,
 });
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
-    provider: "pg",
+    provider: 'pg',
     schema: {
       ...schema,
     },
@@ -34,7 +34,7 @@ export const auth = betterAuth({
         const info = await transporter.sendMail({
           from: '"認証システム" <noreply@example.com>',
           to: user.email,
-          subject: "【メールアドレスの確認】アカウント登録手続き",
+          subject: '【メールアドレスの確認】アカウント登録手続き',
           html: `
             <div style="font-family: sans-serif; padding: 20px;">
               <h2>メールアドレスの所有確認</h2>
@@ -71,7 +71,7 @@ export const auth = betterAuth({
           await transporter.sendMail({
             from: '"認証システム" <noreply@example.com>',
             to: user.email,
-            subject: "【ログイン認証コード】2段階認証のご案内",
+            subject: '【ログイン認証コード】2段階認証のご案内',
             text: `あなたの 2FA 認証コードは ${otp} です。`,
             html: `
               <div style="font-family: sans-serif; padding: 20px;">
