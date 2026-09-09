@@ -91,7 +91,6 @@ volumes:
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
   "workspaceFolder": "/workspace",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
   "containerEnv": {
     "WAYLAND_DISPLAY": "",
     "DISPLAY": ""
