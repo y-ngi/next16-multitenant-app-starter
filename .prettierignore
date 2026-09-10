@@ -1,4 +1,7 @@
 .next/
+.github/
+.vscode/
+.pnpm-store/
 coverage/
 node_modules/
 out/
