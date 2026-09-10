@@ -33,6 +33,7 @@
 * **ORM (ORマッパー)**: Drizzle ORM
 * **データベース**: PostgreSQL 16
 * **メールテスト環境**: Mailpit (SMTP キャッチャー)
+* **AI 開発ハーネス (SDD)**: cc-sdd (Spec-Driven Development) ※ [導入・運用ガイド](./ccsdd_startup.md)
 
 ---
 
@@ -95,6 +96,11 @@
 
 * Vite エコシステムを利用した高速な単体・結合テスト環境を構築。
 * コンポーネントの挙動、Hooks、認証ロジックなどのテストを `pnpm test`（Watch モード）で即座に検証可能です。
+
+### 4. AI 開発ハーネス（cc-sdd）
+* 仕様駆動開発（Spec-Driven Development）の運用ツールとして `cc-sdd` を導入。
+* 要件定義 (`requirements.md`) ➔ 技術設計 (`design.md`) ➔ タスク分解 (`tasks.md`) ➔ TDD実装 (`/kiro-impl`) のステップで AI と連携して安全に開発を進行できます。
+* 詳しい導入手順や使い方は [cc-sdd 導入・運用ガイド](./ccsdd_startup.md) を参照してください。
 
 ---
 
