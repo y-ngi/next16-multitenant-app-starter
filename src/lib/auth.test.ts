@@ -144,4 +144,20 @@ describe('src/lib/auth.ts', () => {
       );
     });
   });
+
+  // -------------------------------------------------------------
+  // Test 4: Canonical URL and Plugins Configuration
+  // -------------------------------------------------------------
+  describe('canonical URL and plugins options', () => {
+    it('baseURL が明示的に設定され、Hostヘッダー等による動的信頼を防止すること', () => {
+      expect(refs.capturedAuthConfig.baseURL).toBeDefined();
+      expect(typeof refs.capturedAuthConfig.baseURL).toBe('string');
+      expect(refs.capturedAuthConfig.baseURL.length).toBeGreaterThan(0);
+    });
+
+    it('organization プラグインが含まれていないこと (独自組織基盤を使用するため)', () => {
+      const pluginIds = (refs.capturedAuthConfig.plugins || []).map((p: any) => p.id);
+      expect(pluginIds).not.toContain('organization');
+    });
+  });
 });

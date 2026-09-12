@@ -30,6 +30,7 @@
 | 2 | Event-Driven | When 後続機能が組織または組織メンバーシップを参照する | the 組織認可基盤 | shall 一貫した組織とユーザの関係を返す。 |
 | 3 | Unwanted Behavior | If 存在しない組織またはメンバーシップが参照される | the 組織認可基盤 | shall 参照を拒否し、存在する所属情報として扱わない。 |
 | 4 | State-Driven | While ユーザの所属が有効である | the 組織認可基盤 | shall そのユーザが所属する組織を識別できる。 |
+| 5 | Ubiquitous | - | The 組織認可基盤 | shall 組織メンバーシップにおいて、組織ごとのユーザー表示名（`displayName`）を保持できるようにする。 |
 
 ### Requirement 2: 標準ロールと権限判定
 
