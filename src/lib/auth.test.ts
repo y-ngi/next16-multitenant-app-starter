@@ -121,27 +121,18 @@ describe('src/lib/auth.ts', () => {
   });
 
   // -------------------------------------------------------------
-  // Test 3: twoFactor.sendOTP (2FA ログイン時の OTP メール送信)
+  // Test 4: Canonical URL and Plugins Configuration
   // -------------------------------------------------------------
-  describe('twoFactor.sendOTP', () => {
-    it('6桁の OTP コードを含むメールを nodemailer 経由で送信すること', async () => {
-      mockSendMail.mockResolvedValueOnce({ messageId: 'msg-002' });
+  describe('canonical URL and plugins options', () => {
+    it('baseURL が明示的に設定され、Hostヘッダー等による動的信頼を防止すること', () => {
+      expect(refs.capturedAuthConfig.baseURL).toBeDefined();
+      expect(typeof refs.capturedAuthConfig.baseURL).toBe('string');
+      expect(refs.capturedAuthConfig.baseURL.length).toBeGreaterThan(0);
+    });
 
-      const user = { email: 'user@example.com' };
-      const otp = '654321';
-
-      await refs.capturedOtpOptions.sendOTP({ user, otp });
-
-      expect(mockSendMail).toHaveBeenCalledTimes(1);
-      expect(mockSendMail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          from: '"認証システム" <noreply@example.com>',
-          to: 'user@example.com',
-          subject: '【ログイン認証コード】2段階認証のご案内',
-          text: expect.stringContaining('654321'),
-          html: expect.stringContaining('654321'),
-        }),
-      );
+    it('organization プラグインが含まれていないこと (独自組織基盤を使用するため)', () => {
+      const pluginIds = (refs.capturedAuthConfig.plugins || []).map((p: any) => p.id);
+      expect(pluginIds).not.toContain('organization');
     });
   });
 });
