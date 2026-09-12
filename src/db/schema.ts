@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgEnum, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core';
 
 // ==========================================
 // Better Auth 用テーブル定義
@@ -71,3 +71,39 @@ export const twoFactor = pgTable('two_factor', {
   failedVerificationCount: integer('failed_verification_count').default(0),
   lockedUntil: timestamp('locked_until'),
 });
+
+export const organizationRole = pgEnum('organization_role', ['owner', 'member']);
+
+export type OrganizationRole = (typeof organizationRole.enumValues)[number];
+
+export const organization = pgTable(
+  'organization',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    createdAt: timestamp('created_at').notNull(),
+    updatedAt: timestamp('updated_at').notNull(),
+  },
+  (table) => [unique('organization_slug_unique').on(table.slug)],
+);
+
+export const membership = pgTable(
+  'membership',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    role: organizationRole('role').notNull(),
+    createdAt: timestamp('created_at').notNull(),
+  },
+  (table) => [
+    unique('membership_organization_id_user_id_unique').on(table.organizationId, table.userId),
+    index('membership_organization_id_idx').on(table.organizationId),
+    index('membership_user_id_idx').on(table.userId),
+  ],
+);
