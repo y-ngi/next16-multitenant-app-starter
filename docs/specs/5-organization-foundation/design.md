@@ -98,7 +98,8 @@ src/
     ├── organization-authz.ts             # サーバー側の組織アクセス認可契約
     └── organization-authz.test.ts        # 認可の成功・失敗分類を検証
 drizzle/
-└── 0000_organization_foundation.sql      # organization と membership を追加する migration
+├── 0000_authentication_baseline.sql      # 既存 Better Auth スキーマを再現する baseline migration
+└── 0001_organization_foundation.sql      # baseline 後に organization と membership を追加する migration
 ```
 
 ### Modified Files
@@ -107,7 +108,8 @@ drizzle/
 - `src/lib/auth.ts` — canonical な `BETTER_AUTH_URL` を認証 base URL として設定し、organization プラグインを追加しない。
 - `src/lib/auth-client.ts` — サーバー側と同じ canonical URL 構成を使用する。
 - `.env.example` — `BETTER_AUTH_URL` の必須性と、プロキシ転送ヘッダーの運用前提を明記する。
-- `drizzle/0000_organization_foundation.sql` — 既存認証テーブルを変更しない加算的 migration を追加する。
+- `drizzle/0000_authentication_baseline.sql` — 既存 Better Auth スキーマを再現する baseline migration を追加する。
+- `drizzle/0001_organization_foundation.sql` — baseline を前提に organization と membership を追加する migration を追加する。
 
 ## System Flows
 
@@ -294,16 +296,17 @@ export interface OrganizationAuthorization {
 
 ### Data Operations Layer
 
-#### Additive migration
+#### Baseline and organization migrations
 
 | Field | Detail |
 | --- | --- |
-| Intent | 既存の認証データを保持して組織基盤を導入する。 |
+| Intent | 既存の認証データを保持し、空の環境と既存環境の両方で組織基盤を導入する。 |
 | Requirements | 6.1-6.3 |
 
 **Responsibilities & Constraints**
 
-- migration は organization と membership を追加するだけで、既存の Better Auth テーブルを変更または削除しない。
+- baseline migration は Better Auth の既存テーブルを再現する。既存 DB では DDL を再実行せず、baseline を適用済みとして migration 履歴へ安全に登録する。
+- organization migration は baseline の次に適用し、organization と membership だけを追加する。既存の Better Auth テーブルを変更または削除しない。
 - migration の適用結果は Drizzle の標準コマンド出力と DBスキーマ照会で確認できる。
 - migration または必須の認証URL設定に失敗した環境では、組織機能を利用可能として起動しない。
 
@@ -318,9 +321,9 @@ export interface OrganizationAuthorization {
 ##### Batch / Job Contract
 
 - **Trigger**: デプロイ前または開発環境で `pnpm db:generate` と `pnpm db:migrate` を実行する。
-- **Input / validation**: 現行 schema、`DATABASE_URL`、migration 履歴を検証する。
-- **Output / destination**: organization と membership を追加した PostgreSQL スキーマ。
-- **Idempotency & recovery**: Drizzle の migration 履歴に従う。失敗時は組織機能を公開せず、失敗原因を標準出力・エラー出力で確認する。
+- **Input / validation**: 現行 schema、`DATABASE_URL`、migration 履歴、および既存 DB が baseline の Better Auth スキーマと一致することを検証する。
+- **Output / destination**: 空の DB では Better Auth スキーマと organization/membership を順に構築し、既存 DB では baseline 登録後に organization/membership を追加する。
+- **Idempotency & recovery**: Drizzle の migration 履歴に従う。既存 DB の baseline 登録は、DDL を実行する前にスキーマ一致を確認する。失敗時は組織機能を公開せず、失敗原因を標準出力・エラー出力で確認する。
 
 ## Data Models
 
@@ -406,4 +409,4 @@ flowchart LR
     Verify --> Enable[Enable organization foundation]
 ```
 
-既存テーブルを削除・変更する migration は作成しない。migration 適用後、既存ユーザが組織に未所属であることは有効な初期状態であり、組織作成と招待は lifecycle で追加する。
+空の DB では baseline migration と organization migration を順に適用する。既存 DB では、Better Auth スキーマとの一致を確認して baseline を履歴へ登録してから organization migration を適用する。既存テーブルを削除・変更する migration は作成しない。migration 適用後、既存ユーザが組織に未所属であることは有効な初期状態であり、組織作成と招待は lifecycle で追加する。

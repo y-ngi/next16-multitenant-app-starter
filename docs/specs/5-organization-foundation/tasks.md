@@ -7,10 +7,16 @@
   - 完了時、現行実装では失敗する組織スキーマ契約テストが存在する。
   - _Requirements: 1.1, 2.1, 2.5_
 
-- [ ] 1.2 Drizzle の組織スキーマと加算的 migration を実装する
+- [ ] 1.2 Better Auth スキーマの migration baseline を確立する
+  - 既存の Better Auth テーブルを再現する baseline migration を生成し、空の DB で最初に適用できるようにする。
+  - 既存 DB では baseline の DDL を再実行せず、スキーマ一致を確認して適用済みとして履歴へ登録する手順を実装・検証する。
+  - 完了時、空の DB と既存 DB のどちらも、以後の組織 migration を安全に適用できる migration 履歴を持つ。
+  - _Requirements: 4.1, 4.2, 6.1, 6.2, 6.3_
+
+- [ ] 1.3 Drizzle の組織スキーマと加算的 migration を実装する
   - organization と membership を追加し、user 参照、一意性、role 制約、組織・ユーザ照会用 index を定義する。
-  - 既存の認証テーブルを変更または削除しない migration を生成・適用可能にする。
-  - 完了時、migration を適用でき、1.1 の永続化契約が通過する。
+  - baseline の次に適用され、既存の認証テーブルを変更または削除しない migration を生成・適用可能にする。
+  - 完了時、baseline 適用済み環境で organization migration を適用でき、1.1 の永続化契約が通過する。
   - _Requirements: 1.1, 2.1, 2.5, 6.1, 6.2, 6.3_
 
 - [ ] 2. 認証オリジンと既存認証の継続性を確立する
@@ -40,7 +46,7 @@
   - 組織操作ごとに既存セッション、organization、membership、必要 role を確認するサーバー専用の認可契約を実装する。
   - 未認証、組織不存在、非所属、権限不足を識別可能な失敗結果として返し、成功結果以外では保護情報を返さない。
   - 完了時、3.1 の成功・失敗シナリオが通過し、後続仕様が同じ契約を利用できる。
-  - _Depends: 1.2_
+  - _Depends: 1.3_
   - _Requirements: 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 3.4, 4.3_
 
 - [ ] 4. 組織基盤を既存認証と統合して検証する
@@ -49,7 +55,7 @@
   - 加算的 migration 後にも既存認証の user、session、account、verification、twoFactor が利用できることを検証する。
   - migration 適用結果が確認でき、organization 基盤の導入後も既存ユーザが認証できることを検証する。
   - 完了時、既存認証データを維持する加算的 migration の統合テストが通過する。
-  - _Depends: 1.2, 2.2_
+  - _Depends: 1.2, 1.3, 2.2_
   - _Requirements: 4.1, 4.2, 6.1, 6.2_
 
 - [ ] 4.2 基盤の品質ゲートを実行する

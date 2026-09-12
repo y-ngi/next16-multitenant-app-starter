@@ -23,7 +23,7 @@
 - **Context**: 既存認証データを失わず、組織と所属を識別可能にする必要がある。
 - **Sources Consulted**: `src/db/schema.ts`、`src/db/index.ts`、`drizzle.config.ts`、`package.json`
 - **Findings**: 現在のスキーマは Better Auth の認証関連テーブルと二段階認証テーブルだけである。Drizzle のマイグレーション出力先は `drizzle/` で、組織用の既存マイグレーションはない。
-- **Implications**: organization と membership を新設する加算的マイグレーションに限定する。membership は organization と user の組合せを一意にし、削除された組織またはユーザに孤立しない参照整合性を持つ。
+- **Implications**: migration 履歴がない既存 Better Auth スキーマを baseline migration として確立する。既存 DB では baseline DDL を実行せず、スキーマ一致を確認して履歴へ登録してから、organization と membership の加算的 migration を適用する。空の DB は baseline と organization migration の順に構築する。
 
 ### 認可と認証オリジン
 
