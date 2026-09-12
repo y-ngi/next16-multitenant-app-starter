@@ -121,6 +121,31 @@ describe('src/lib/auth.ts', () => {
   });
 
   // -------------------------------------------------------------
+  // Test 3: twoFactor.sendOTP (2FA ログイン時の OTP メール送信)
+  // -------------------------------------------------------------
+  describe('twoFactor.sendOTP', () => {
+    it('6桁の OTP コードを含むメールを nodemailer 経由で送信すること', async () => {
+      mockSendMail.mockResolvedValueOnce({ messageId: 'msg-002' });
+
+      const user = { email: 'user@example.com' };
+      const otp = '654321';
+
+      await refs.capturedOtpOptions.sendOTP({ user, otp });
+
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from: '"認証システム" <noreply@example.com>',
+          to: 'user@example.com',
+          subject: '【ログイン認証コード】2段階認証のご案内',
+          text: expect.stringContaining('654321'),
+          html: expect.stringContaining('654321'),
+        }),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------
   // Test 4: Canonical URL and Plugins Configuration
   // -------------------------------------------------------------
   describe('canonical URL and plugins options', () => {

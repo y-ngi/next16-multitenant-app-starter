@@ -35,6 +35,7 @@ describe('organization schema contract', () => {
     expect(membership.id.primary).toBe(true);
     expect(membership.organizationId.notNull).toBe(true);
     expect(membership.userId.notNull).toBe(true);
+    expect(membership.displayName).toBeDefined();
     expect(membership.role.notNull).toBe(true);
     expect(membership.createdAt.notNull).toBe(true);
     expect(foreignKeys).toEqual(

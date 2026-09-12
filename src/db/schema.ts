@@ -98,6 +98,7 @@ export const membership = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
+    displayName: text('display_name'),
     role: organizationRole('role').notNull(),
     createdAt: timestamp('created_at').notNull(),
   },

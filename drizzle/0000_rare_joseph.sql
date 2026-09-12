@@ -19,6 +19,7 @@ CREATE TABLE "membership" (
 	"id" text PRIMARY KEY NOT NULL,
 	"organization_id" text NOT NULL,
 	"user_id" text NOT NULL,
+	"display_name" text,
 	"role" "organization_role" NOT NULL,
 	"created_at" timestamp NOT NULL,
 	CONSTRAINT "membership_organization_id_user_id_unique" UNIQUE("organization_id","user_id")
