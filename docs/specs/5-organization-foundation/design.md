@@ -186,7 +186,7 @@ sequenceDiagram
 **Responsibilities & Constraints**
 
 - organization は安定したID、表示用名称、URL解決用の一意な slug、作成・更新日時を持つ。
-- membership は organization ID、Better Auth user ID、`owner` または `member`、作成日時を持つ。
+- membership は organization ID、Better Auth user ID、組織ごとの表示名（`displayName`、任意）、`owner` または `member`、作成日時を持つ。
 - 同一ユーザは同一 organization に1つだけ membership を持つ。
 - organization または user の削除時に孤立した membership を残さない。
 - organization の作成、membership の作成・更新・削除は後続仕様の責務とする。
