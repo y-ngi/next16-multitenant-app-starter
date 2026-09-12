@@ -17,7 +17,7 @@
   - _Requirements: 4.1, 4.2, 5.1, 5.2_
   - _Boundary: Auth configuration_
 
-- [ ] 2.2 canonical URL 設定とプロキシ運用境界を実装する
+- [x] 2.2 canonical URL 設定とプロキシ運用境界を実装する
   - 認証サーバー・クライアントを `BETTER_AUTH_URL` の canonical URL へ統一し、organization plugin を追加しない。
   - 環境変数例に必須 URL と、プロキシが信頼境界外の転送ヘッダーを制限する要件を追加する。
   - 完了時、2.1 のテストが通過し、必須 URL が欠ける構成は明示的に失敗する。
