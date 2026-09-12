@@ -22,7 +22,7 @@ description: Show specification status and progress
 - Read `docs/specs/$1/brief.md` if it exists
 - Read existing files: `requirements.md`, `design.md`, `tasks.md` (if they exist)
 - Check `docs/specs/$1/` directory for available files
-- Read `docs/steering/roadmap.md` if it exists and this spec appears in it
+- Read the issue-prefixed roadmap file matching `docs/steering/*-roadmap.md` if it exists and this spec appears in it
 
 ### Step 2: Analyze Status
 

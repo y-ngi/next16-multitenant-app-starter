@@ -5,7 +5,7 @@
 - **Language**: TypeScript (Strict Mode)
 - **Styling**: Tailwind CSS + Base UI + shadcn/ui
 - **Database / ORM**: PostgreSQL 16 + Drizzle ORM
-- **Authentication**: Better Auth (organization プラグイン)
+- **Authentication**: Better Auth（認証）+ 独自の組織・ロール基盤
 - **Quality**: ESLint 9 Flat Config (`eslint.config.mjs`) / Prettier
 - **Testing**: Vitest + React Testing Library
 
@@ -20,8 +20,8 @@
 ## アーキテクチャと実装方針
 - **実行形態**: Next.js に画面、認証、データアクセスを集約するフルスタックモノリスから開始する。将来の API 分離を妨げないよう、認証設定は `src/lib/`、DB 実装は `src/db/` に分離する。
 - **ルーティングと認可**: App Router のサーバーコンポーネントでリクエストヘッダーからセッションを取得し、保護ページは未認証時にログイン画面へリダイレクトする。
-- **認証**: Better Auth の Drizzle アダプターを使用し、メール検証と OTP ベースの二段階認証を有効にする。メール送信は Nodemailer 経由で行い、環境依存の接続情報は環境変数で設定する。
-- **データモデル**: PostgreSQL のテーブル定義は Drizzle スキーマに集約し、組織・ユーザー・メンバーシップを分離してテナントとロールを扱う。
+- **認証**: Better Auth の Drizzle アダプターを使用し、メール検証と OTP ベースの二段階認証を有効にする。Better Auth はユーザー認証とセッション管理に限定し、組織・メンバーシップ・ロールの業務ロジックを organization プラグインへ依存させない。メール送信は Nodemailer 経由で行い、環境依存の接続情報は環境変数で設定する。
+- **データモデル**: PostgreSQL のテーブル定義は Drizzle スキーマに集約し、組織・ユーザー・メンバーシップを分離してテナントとロールを扱う。組織ロールは独自に管理し、初期段階では `owner` と `member` の2種類に限定する。
 - **UI**: Tailwind CSS のユーティリティクラスを基本とし、shadcn/ui と Base UI のプリミティブを再利用する。`src/components/ui/` の生成済みプリミティブは必要な設計変更以外で変更しない。
 
 ## 開発環境と運用コマンド
@@ -43,4 +43,4 @@ pnpm test:run
 - 実装前に失敗するテストを作成し、最小限の実装で通過させる TDD を標準とする。
 
 ---
-_2026-09-10 更新: 不足していたプロダクト／構成ステアリングの追加に合わせ、既存の品質規約を保持したまま実装上の境界と開発規約を追記。_
+_2026-09-12 更新: 組織・ロールの業務ロジックを Better Auth organization プラグインから分離し、独自の組織基盤と `owner`／`member` の2ロールを採用する方針へ更新。_

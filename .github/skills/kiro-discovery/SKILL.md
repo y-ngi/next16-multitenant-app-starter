@@ -20,8 +20,8 @@ description: Entry point for new work. Determines the best action path or work d
 Gather **only metadata** to determine the action path. Do NOT read full file contents yet.
 
 - **Specs inventory**: Scan `docs/specs/*/spec.json` for `name`, `phase` fields and `approvals` status. Note feature names and their current status.
-- **Steering existence**: Check which files exist in `docs/steering/` (product.md, tech.md, structure.md, roadmap.md). Do NOT read their contents yet.
-- **Roadmap check**: If `docs/steering/roadmap.md` exists, read it. This contains project-level context (approach, scope, constraints, spec list) from a previous discovery session. Use it to restore project context.
+- **Steering existence**: Check which files exist in `docs/steering/` (product.md, tech.md, structure.md, and issue-prefixed roadmap files). Do NOT read their contents yet.
+- **Roadmap check**: If an issue-prefixed roadmap file matching `docs/steering/*-roadmap.md` exists, read it. This contains project-level context (approach, scope, constraints, spec list) from a previous discovery session. Use it to restore project context.
 - **Top-level structure**: List the project root directory to note key directories and files. Do NOT recurse into subdirectories.
 
 This step should consume minimal context. If `specs/` is empty and no steering exists, note "greenfield project" and move to Step 2.
@@ -122,7 +122,7 @@ If the viability check reveals issues, present them to the user and revisit the 
 
 **For Path C (single spec)**:
 
-Write `docs/specs/<feature-name>/brief.md` to disk with this structure:
+Write `docs/specs/<issue-number>-<feature-name>/brief.md` to disk with this structure:
 
 ```
 # Brief: <feature-name>
@@ -165,8 +165,8 @@ Write `docs/specs/<feature-name>/brief.md` to disk with this structure:
 **For Path D (multi-spec decomposition)**:
 
 Write these to disk:
-- `docs/steering/roadmap.md`
-- `docs/specs/<feature>/brief.md` for every feature listed under `## Specs (dependency order)`
+- `docs/steering/<issue-number>-roadmap.md`
+- `docs/specs/<issue-number>-<feature>/brief.md` for every feature listed under `## Specs (dependency order)`
 
 Use this roadmap structure:
 
@@ -198,7 +198,7 @@ Use this roadmap structure:
 - [ ] feature-c -- [one-line description]. Dependencies: feature-a, feature-b
 ```
 
-Then write `docs/specs/<feature>/brief.md` for **every** feature listed under `## Specs (dependency order)` using the Path C brief format. This enables parallel spec creation via `/kiro-spec-batch`.
+Then write `docs/specs/<issue-number>-<feature>/brief.md` for **every** feature listed under `## Specs (dependency order)` using the Path C brief format. This enables parallel spec creation via `/kiro-spec-batch`.
 
 **For Path E (mixed decomposition)**:
 
@@ -224,8 +224,8 @@ Path E rules:
 - Record true no-spec work under `## Direct Implementation Candidates`
 - Write `brief.md` only for the **new specs** listed under `## Specs (dependency order)`
 
-**Re-entry (roadmap.md already exists)**:
-Write the next new spec's brief.md to disk. Update roadmap.md if scope/ordering changed, preserving completed items and prior phases.
+**Re-entry (an issue-prefixed roadmap file already exists)**:
+Write the next new spec's brief.md to disk. Update the issue-prefixed roadmap file if scope/ordering changed, preserving completed items and prior phases.
 
 After writing, verify the files exist by reading them back.
 
@@ -237,7 +237,7 @@ Suggest the next command and stop. Do NOT automatically run downstream spec gene
 - Path B: Recommend direct implementation without creating a spec
 - Path C: Default to `/kiro-spec-init <feature-name>`
   - Optional fast path: `/kiro-spec-quick <feature-name>` when the user explicitly wants to continue immediately
-- Path D: Default to `/kiro-spec-batch` (creates all specs in parallel based on roadmap.md dependency order)
+- Path D: Default to `/kiro-spec-batch` (creates all specs in parallel based on the issue-prefixed roadmap dependency order)
   - Optional cautious path: `/kiro-spec-init <first-feature-name>` when the user wants to validate the first slice before batching the rest
 - Path E: Choose the next command based on the new-spec portion of the decomposition
   - If there is exactly one new spec: `/kiro-spec-init <new-feature-name>`
@@ -250,13 +250,13 @@ If the decomposition contains only existing-spec updates plus direct implementat
 </instructions>
 
 ## Critical Constraints
-- **Files on disk are the source of continuity**: For Path C/D/E, write brief.md and roadmap.md to disk as needed before suggesting the next command. Do NOT leave discovery results only in conversation text.
+- **Files on disk are the source of continuity**: For Path C/D/E, write brief.md and the issue-prefixed roadmap file to disk as needed before suggesting the next command. Do NOT leave discovery results only in conversation text.
 
 ## Safety & Fallback
 
 **Roadmap Already Exists (re-entry)**:
-- Read roadmap.md to restore project context before asking questions
+- Read the issue-prefixed roadmap file to restore project context before asking questions
 - Determine next spec based on completed specs' status
 - Write brief.md for the next spec only (just-in-time)
-- Update roadmap.md if scope/ordering changed based on implementation experience
+- Update the issue-prefixed roadmap file if scope/ordering changed based on implementation experience
 - Append new specs as a new phase if the request expands the project, don't overwrite existing content

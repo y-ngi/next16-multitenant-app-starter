@@ -1,0 +1,22 @@
+{
+  "feature_name": "5-organization-foundation",
+  "created_at": "2026-09-10T17:49:39.118+00:00",
+  "updated_at": "2026-09-12T12:45:25.768+00:00",
+  "language": "ja",
+  "phase": "requirements-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": false,
+      "approved": false
+    },
+    "tasks": {
+      "generated": false,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false
+}

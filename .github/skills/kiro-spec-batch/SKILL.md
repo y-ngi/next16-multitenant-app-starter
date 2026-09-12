@@ -20,7 +20,7 @@ description: Create complete specs (requirements, design, tasks) for all feature
 
 ## Step 1: Read Roadmap and Validate
 
-1. Read `docs/steering/roadmap.md`
+1. Read the issue-prefixed roadmap file matching `docs/steering/*-roadmap.md`
 2. Parse the `## Specs (dependency order)` section to extract:
    - Feature names
    - One-line descriptions
@@ -30,7 +30,7 @@ description: Create complete specs (requirements, design, tasks) for all feature
    - `## Existing Spec Updates`
    - `## Direct Implementation Candidates`
    Do not include these in dependency-wave execution; they are awareness-only inputs for sequencing and consistency review.
-4. For each pending feature in `## Specs (dependency order)`, verify `docs/specs/<feature>/brief.md` exists
+4. For each pending feature in `## Specs (dependency order)`, verify `docs/specs/<feature>/brief.md` exists, where `<feature>` includes its Issue number prefix.
 5. If any brief.md is missing, stop and report: "Missing brief.md for: [list]. Run `/kiro-discovery` to generate briefs first."
 
 ## Step 2: Build Dependency Waves
@@ -63,7 +63,7 @@ For each wave, dispatch all features in the wave as **parallel sub-agents**.
 Create a complete specification for feature "{feature-name}".
 
 1. Read the brief at docs/specs/{feature-name}/brief.md for feature context
-2. Read the roadmap at docs/steering/roadmap.md for project context
+2. Read the issue-prefixed roadmap file matching docs/steering/*-roadmap.md for project context
 3. Execute the full spec pipeline. For each phase, read the corresponding skill's SKILL.md for complete instructions (templates, rules, review gates):
    a. Initialize: Read .github/skills/kiro-spec-init/SKILL.md, then create spec.json and requirements.md
    b. Generate requirements: Read .github/skills/kiro-spec-requirements/SKILL.md, then follow its steps
@@ -91,7 +91,7 @@ Read ALL generated specs and check for consistency across the entire project:
 - `docs/specs/*/design.md` (primary: contains interfaces, data models, architecture)
 - `docs/specs/*/requirements.md` (for scope and acceptance criteria)
 - `docs/specs/*/tasks.md` (for boundary annotations only -- read _Boundary:_ lines, skip task descriptions)
-- `docs/steering/roadmap.md`
+- `docs/steering/*-roadmap.md`
 
 Reading priority: Focus on design.md files (they contain interfaces, data models, architecture). For requirements.md, focus on section headings and acceptance criteria. For tasks.md, focus on _Boundary:_ annotations.
 
@@ -118,8 +118,8 @@ Output: CONSISTENT areas + ISSUES with (which specs, what's inconsistent, sugges
 
 1. Scan `docs/specs/*/tasks.md` to verify all specs exist
 2. For each completed spec, read spec.json to confirm phase and approvals
-3. Update roadmap.md: mark completed specs as `[x]`
-4. If roadmap.md includes `Existing Spec Updates` or `Direct Implementation Candidates`, leave them untouched and mention them as remaining follow-up items unless already explicitly completed elsewhere
+3. Update the issue-prefixed roadmap file: mark completed specs as `[x]`
+4. If the roadmap includes `Existing Spec Updates` or `Direct Implementation Candidates`, leave them untouched and mention them as remaining follow-up items unless already explicitly completed elsewhere
 
 Display final summary:
 ```
@@ -139,11 +139,11 @@ Next: Review generated specs, then start implementation with /kiro-impl <feature
 </instructions>
 
 ## Critical Constraints
-- **Controller stays lightweight**: Only read roadmap.md and brief.md existence checks in main context. All spec generation happens in sub-agents.
+- **Controller stays lightweight**: Only read the issue-prefixed roadmap and brief.md existence checks in main context. All spec generation happens in sub-agents.
 - **Wave ordering is strict**: Never start a wave until all features in previous waves are complete.
 - **Parallel within waves**: All features in the same wave should be dispatched in parallel if multi-agent is available.
 - **No partial waves**: If a feature in a wave fails, still complete the other features in that wave before reporting.
-- **Skip completed specs**: Features with `[x]` in roadmap.md or existing tasks.md are skipped.
+- **Skip completed specs**: Features with `[x]` in the issue-prefixed roadmap or existing tasks.md are skipped.
 - **`## Specs (dependency order)` remains authoritative for batch execution**: Other roadmap sections are context, not wave inputs.
 
 ## Safety & Fallback
@@ -156,10 +156,10 @@ Next: Review generated specs, then start implementation with /kiro-impl <feature
 
 **Circular dependencies**:
 - If dependency graph has cycles, report the cycle and stop
-- Suggest: "Fix dependency ordering in roadmap.md"
+- Suggest: "Fix dependency ordering in the issue-prefixed roadmap file."
 
 **Roadmap not found**:
-- Stop and report: "No roadmap.md found. Run `/kiro-discovery` first."
+- Stop and report: "No issue-prefixed roadmap file found. Run `/kiro-discovery` first."
 
 **All specs already complete**:
-- Report: "All specs in roadmap.md are already complete. Nothing to do."
+- Report: "All specs in the issue-prefixed roadmap are already complete. Nothing to do."
