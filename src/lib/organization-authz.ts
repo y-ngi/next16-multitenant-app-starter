@@ -14,11 +14,7 @@ export type OrganizationAccess =
     }
   | {
       readonly ok: false;
-      readonly reason:
-        | 'unauthenticated'
-        | 'organization-not-found'
-        | 'not-member'
-        | 'insufficient-role';
+      readonly reason: 'unauthenticated' | 'organization-not-found' | 'not-member' | 'insufficient-role';
     };
 
 export interface RequireOrganizationAccessInput {
@@ -28,13 +24,11 @@ export interface RequireOrganizationAccessInput {
 }
 
 /**
-  * サーバー専用の組織アクセス認可関数。
-  * 既存 Better Auth セッション、組織存在、所属メンバーシップ、必要ロールを順次検証し、
-  * 成功時のみ organizationId, userId, role を返す。
-  */
-export async function requireOrganizationAccess(
-  input: RequireOrganizationAccessInput,
-): Promise<OrganizationAccess> {
+ * サーバー専用の組織アクセス認可関数。
+ * 既存 Better Auth セッション、組織存在、所属メンバーシップ、必要ロールを順次検証し、
+ * 成功時のみ organizationId, userId, role を返す。
+ */
+export async function requireOrganizationAccess(input: RequireOrganizationAccessInput): Promise<OrganizationAccess> {
   const { headers, organizationId, requiredRole } = input;
 
   // 1. 認証セッション確認
@@ -56,10 +50,7 @@ export async function requireOrganizationAccess(
 
   // 3. メンバーシップ確認
   const memberRecord = await db.query.membership.findFirst({
-    where: and(
-      eq(membership.organizationId, organizationId),
-      eq(membership.userId, userId),
-    ),
+    where: and(eq(membership.organizationId, organizationId), eq(membership.userId, userId)),
   });
 
   if (!memberRecord) {

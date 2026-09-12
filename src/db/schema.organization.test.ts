@@ -4,10 +4,7 @@ import { membership, organization, user } from './schema';
 
 const dialect = new PgDialect();
 
-function hasUniqueConstraint(
-  table: ReturnType<typeof getTableConfig>,
-  columnNames: readonly string[],
-): boolean {
+function hasUniqueConstraint(table: ReturnType<typeof getTableConfig>, columnNames: readonly string[]): boolean {
   return table.uniqueConstraints.some(
     (constraint) =>
       constraint.columns.length === columnNames.length &&
