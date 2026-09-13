@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { authClient, twoFactor } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
@@ -8,21 +8,75 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-export function AuthForm() {
+export interface AuthFormProps {
+  readonly defaultEmail?: string;
+  readonly isEmailLocked?: boolean;
+  readonly defaultIsSignUp?: boolean;
+  readonly callbackURL?: string;
+  readonly hasExistingSession?: boolean;
+}
+
+export function AuthForm({
+  defaultEmail = '',
+  isEmailLocked = false,
+  defaultIsSignUp = false,
+  callbackURL,
+  hasExistingSession = false,
+}: AuthFormProps) {
   const router = useRouter();
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(defaultIsSignUp);
   const [isEmailSentStep, setIsEmailSentStep] = useState(false); // メール確認案内画面フラグ
   const [isOtpStep, setIsOtpStep] = useState(false); // 2FAコード入力画面フラグ
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 既存セッションが残っている場合、ログイン/新規登録フォームでの操作を受け付ける前に
+  // 「ログアウトして続けますか？」の確認を挟む。ユーザーが明示的にログアウトを選択して
+  // 初めてサインアウトを実行し、フォームを表示する。
+  const [needsSessionConfirmation, setNeedsSessionConfirmation] = useState(hasExistingSession);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
 
   const [displayName, setDisplayName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(defaultEmail);
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
 
+  // Update email state when defaultEmail changes (for controlled component)
+  useEffect(() => {
+    if (defaultEmail) {
+      setEmail(defaultEmail);
+    }
+  }, [defaultEmail]);
+
+  // ログイン/新規登録画面に既存セッションを持ったまま到達した場合の、
+  // 明示的な「ログアウトして続ける」操作。
+  const handleConfirmSignOut = async () => {
+    setIsSigningOut(true);
+    setSignOutError(null);
+
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          setNeedsSessionConfirmation(false);
+          setIsSigningOut(false);
+        },
+        onError: (ctx) => {
+          setSignOutError(ctx.error?.message || 'ログアウトに失敗しました');
+          setIsSigningOut(false);
+        },
+      },
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 既存セッションのログアウト確認が完了するまで、フォーム送信を受け付けない。
+    if (needsSessionConfirmation) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -36,7 +90,7 @@ export function AuthForm() {
         setError(res.error.message || '認証コードが正しくありません');
         setLoading(false);
       } else {
-        router.push('/dashboard');
+        router.push(callbackURL || '/dashboard');
         router.refresh();
       }
       return;
@@ -48,7 +102,7 @@ export function AuthForm() {
         email,
         password,
         name: displayName,
-        callbackURL: '/login', // ← ここに callbackURL を追加！
+        callbackURL: callbackURL || '/login',
       });
 
       if (res.error) {
@@ -60,7 +114,7 @@ export function AuthForm() {
       // もし sendOnSignUp が自動発火しない環境の保険として、明示的に検証メール送信を呼び出すことも可能
       await authClient.sendVerificationEmail({
         email,
-        callbackURL: '/login',
+        callbackURL: callbackURL || '/login',
       });
 
       // 新規登録成功後、メール案内画面を表示
@@ -95,11 +149,35 @@ export function AuthForm() {
         setIsOtpStep(true);
         setLoading(false);
       } else {
-        router.push('/dashboard');
+        router.push(callbackURL || '/dashboard');
         router.refresh();
       }
     }
   };
+
+  // 既存セッションが残っている場合の「ログアウトして続けますか？」確認 UI
+  if (needsSessionConfirmation) {
+    return (
+      <Card className="mx-auto w-full max-w-md text-center">
+        <CardHeader>
+          <CardTitle>ログイン中です</CardTitle>
+          <CardDescription>
+            {isSignUp
+              ? 'ログアウトして別アカウントを作成しますか？'
+              : 'ログアウトして別アカウントでログインしますか？'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {signOutError && (
+            <div className="bg-destructive rounded-md p-3 text-sm text-white">{signOutError}</div>
+          )}
+          <Button className="w-full" onClick={handleConfirmSignOut} disabled={isSigningOut}>
+            {isSigningOut ? 'ログアウトしています...' : 'ログアウトして続ける'}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // メール送信完了案内の UI
   if (isEmailSentStep) {
@@ -125,6 +203,7 @@ export function AuthForm() {
             onClick={() => {
               setIsEmailSentStep(false);
               setIsSignUp(false);
+              setError(null);
             }}
           >
             ログイン画面へ移動
@@ -187,6 +266,7 @@ export function AuthForm() {
                   placeholder="user@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  readOnly={isEmailLocked && isSignUp}
                   required
                 />
               </div>

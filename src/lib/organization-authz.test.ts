@@ -13,6 +13,7 @@ vi.mock('@/lib/auth', () => ({
 // Mock database module
 vi.mock('@/db', () => ({
   db: {
+    select: vi.fn(),
     query: {
       organization: {
         findFirst: vi.fn(),
@@ -55,7 +56,11 @@ describe('OrganizationAuthorization', () => {
       user: { id: userId },
       session: { id: 'sess-1' },
     } as any);
-    vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce(null as any);
+
+    const mockLimit = vi.fn().mockResolvedValue([]);
+    const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit });
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
     const result = await requireOrganizationAccess({
       headers,
@@ -73,12 +78,30 @@ describe('OrganizationAuthorization', () => {
       user: { id: userId },
       session: { id: 'sess-1' },
     } as any);
-    vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
-      id: organizationId,
-      name: 'Test Org',
-      slug: 'test-org',
-    } as any);
-    vi.mocked(db.query.membership.findFirst).mockResolvedValueOnce(null as any);
+
+    let callCount = 0;
+    vi.mocked(db.select).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // org lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue([{ id: organizationId }]),
+            }),
+          }),
+        } as any;
+      } else {
+        // member lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        } as any;
+      }
+    });
 
     const result = await requireOrganizationAccess({
       headers,
@@ -96,17 +119,30 @@ describe('OrganizationAuthorization', () => {
       user: { id: userId },
       session: { id: 'sess-1' },
     } as any);
-    vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
-      id: organizationId,
-      name: 'Test Org',
-      slug: 'test-org',
-    } as any);
-    vi.mocked(db.query.membership.findFirst).mockResolvedValueOnce({
-      id: 'mem-1',
-      organizationId,
-      userId,
-      role: 'member',
-    } as any);
+
+    let callCount = 0;
+    vi.mocked(db.select).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // org lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue([{ id: organizationId }]),
+            }),
+          }),
+        } as any;
+      } else {
+        // member lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue([{ id: 'mem-1', role: 'member' }]),
+            }),
+          }),
+        } as any;
+      }
+    });
 
     const result = await requireOrganizationAccess({
       headers,
@@ -125,17 +161,30 @@ describe('OrganizationAuthorization', () => {
       user: { id: userId },
       session: { id: 'sess-1' },
     } as any);
-    vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
-      id: organizationId,
-      name: 'Test Org',
-      slug: 'test-org',
-    } as any);
-    vi.mocked(db.query.membership.findFirst).mockResolvedValueOnce({
-      id: 'mem-1',
-      organizationId,
-      userId,
-      role: 'owner',
-    } as any);
+
+    let callCount = 0;
+    vi.mocked(db.select).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // org lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue([{ id: organizationId }]),
+            }),
+          }),
+        } as any;
+      } else {
+        // member lookup
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue([{ id: 'mem-1', role: 'owner' }]),
+            }),
+          }),
+        } as any;
+      }
+    });
 
     const result = await requireOrganizationAccess({
       headers,

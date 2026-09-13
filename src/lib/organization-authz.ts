@@ -40,22 +40,28 @@ export async function requireOrganizationAccess(input: RequireOrganizationAccess
   const userId = session.user.id;
 
   // 2. 組織存在確認
-  const orgRecord = await db.query.organization.findFirst({
-    where: eq(organization.id, organizationId),
-  });
+  const orgRecords = await db
+    .select({ id: organization.id })
+    .from(organization)
+    .where(eq(organization.id, organizationId))
+    .limit(1);
 
-  if (!orgRecord) {
+  if (orgRecords.length === 0) {
     return { ok: false, reason: 'organization-not-found' };
   }
 
   // 3. メンバーシップ確認
-  const memberRecord = await db.query.membership.findFirst({
-    where: and(eq(membership.organizationId, organizationId), eq(membership.userId, userId)),
-  });
+  const memberRecords = await db
+    .select({ id: membership.id, role: membership.role })
+    .from(membership)
+    .where(and(eq(membership.organizationId, organizationId), eq(membership.userId, userId)))
+    .limit(1);
 
-  if (!memberRecord) {
+  if (memberRecords.length === 0) {
     return { ok: false, reason: 'not-member' };
   }
+
+  const memberRecord = memberRecords[0];
 
   // 4. ロール権限確認
   if (requiredRole && requiredRole === 'owner' && memberRecord.role !== 'owner') {
