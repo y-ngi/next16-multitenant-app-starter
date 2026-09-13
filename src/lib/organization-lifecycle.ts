@@ -283,6 +283,94 @@ export interface CreateInvitationResult {
   readonly error?: string;
 }
 
+export interface ValidateTokenResult {
+  readonly valid: boolean;
+  readonly reason?: 'not-found' | 'expired' | 'already-used' | 'canceled';
+  readonly invitation?: {
+    readonly id: string;
+    readonly organizationId: string;
+    readonly organizationName: string;
+    readonly email: string;
+    readonly role: OrganizationRole;
+  };
+}
+
+/**
+ * Server-only function to validate an invitation token.
+ * Returns validation result with details about the invitation status.
+ * Distinguishes between different invalid states: not-found, expired, already-used, and canceled.
+ */
+export async function validateInvitationToken(token: string): Promise<ValidateTokenResult> {
+  try {
+    // 1. Find invitation by token
+    const inv = await db.query.invitation.findFirst({
+      where: eq(invitation.token, token),
+    });
+
+    if (!inv) {
+      return {
+        valid: false,
+        reason: 'not-found',
+      };
+    }
+
+    // 2. Check invitation status
+    if (inv.status === 'canceled') {
+      return {
+        valid: false,
+        reason: 'canceled',
+      };
+    }
+
+    if (inv.status === 'accepted' || inv.status === 'rejected') {
+      return {
+        valid: false,
+        reason: 'already-used',
+      };
+    }
+
+    // 3. Check expiration (expiresAt < now means expired)
+    const now = new Date();
+    if (inv.expiresAt < now) {
+      return {
+        valid: false,
+        reason: 'expired',
+      };
+    }
+
+    // 4. Valid invitation: status is 'pending' and not expired
+    // Fetch organization name
+    const org = await db.query.organization.findFirst({
+      where: eq(organization.id, inv.organizationId),
+    });
+
+    if (!org) {
+      // Organization not found (should not happen in normal flow)
+      return {
+        valid: false,
+        reason: 'not-found',
+      };
+    }
+
+    return {
+      valid: true,
+      invitation: {
+        id: inv.id,
+        organizationId: inv.organizationId,
+        organizationName: org.name,
+        email: inv.email,
+        role: inv.role as OrganizationRole,
+      },
+    };
+  } catch (error) {
+    // On error, treat as not-found
+    return {
+      valid: false,
+      reason: 'not-found',
+    };
+  }
+}
+
 /**
  * Server-only function to create an invitation for a user to join an organization.
  * Only organization owners can create invitations.

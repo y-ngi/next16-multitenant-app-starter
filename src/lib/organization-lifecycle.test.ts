@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createOrganization, createInvitation } from './organization-lifecycle';
+import { createOrganization, createInvitation, validateInvitationToken } from './organization-lifecycle';
 
 // Mock auth module
 vi.mock('@/lib/auth', () => ({
@@ -664,6 +664,157 @@ describe('Organization Lifecycle', () => {
       expect(capturedToken).toBeDefined();
       // UUID format check (basic)
       expect(capturedToken).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    });
+  });
+
+  describe('validateInvitationToken', () => {
+    const invitationId = 'inv-123';
+    const organizationId = 'org-123';
+    const organizationName = 'Test Organization';
+    const inviteeEmail = 'invitee@example.com';
+    const token = 'token-uuid-123';
+
+    it('有効な招待（pending かつ期限内）を検証できること', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000); // 5 days from now
+
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+        id: invitationId,
+        organizationId,
+        email: inviteeEmail,
+        token,
+        status: 'pending',
+        expiresAt: futureDate,
+        role: 'member',
+        inviterId: userId,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+
+      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
+        id: organizationId,
+        name: organizationName,
+        slug: 'test-org',
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+
+      const result = await validateInvitationToken(token);
+
+      expect(result.valid).toBe(true);
+      expect(result.reason).toBeUndefined();
+      expect(result.invitation).toBeDefined();
+      expect(result.invitation?.id).toBe(invitationId);
+      expect(result.invitation?.organizationId).toBe(organizationId);
+      expect(result.invitation?.organizationName).toBe(organizationName);
+      expect(result.invitation?.email).toBe(inviteeEmail);
+      expect(result.invitation?.role).toBe('member');
+    });
+
+    it('存在しないトークンの場合 not-found を返すこと', async () => {
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(null);
+
+      const result = await validateInvitationToken(token);
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('not-found');
+      expect(result.invitation).toBeUndefined();
+    });
+
+    it('期限切れ招待の場合 expired を返すこと', async () => {
+      const now = new Date();
+      const pastDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000); // 1 day in the past
+
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+        id: invitationId,
+        organizationId,
+        email: inviteeEmail,
+        token,
+        status: 'pending',
+        expiresAt: pastDate,
+        role: 'member',
+        inviterId: userId,
+        createdAt: new Date(pastDate.getTime() - 15 * 24 * 60 * 60 * 1000),
+        updatedAt: pastDate,
+      } as any);
+
+      const result = await validateInvitationToken(token);
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('expired');
+      expect(result.invitation).toBeUndefined();
+    });
+
+    it('使用済み招待（accepted）の場合 already-used を返すこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+        id: invitationId,
+        organizationId,
+        email: inviteeEmail,
+        token,
+        status: 'accepted',
+        expiresAt: futureDate,
+        role: 'member',
+        inviterId: userId,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+
+      const result = await validateInvitationToken(token);
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('already-used');
+      expect(result.invitation).toBeUndefined();
+    });
+
+    it('使用済み招待（rejected）の場合 already-used を返すこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+        id: invitationId,
+        organizationId,
+        email: inviteeEmail,
+        token,
+        status: 'rejected',
+        expiresAt: futureDate,
+        role: 'member',
+        inviterId: userId,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+
+      const result = await validateInvitationToken(token);
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('already-used');
+      expect(result.invitation).toBeUndefined();
+    });
+
+    it('キャンセル済み招待の場合 canceled を返すこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+        id: invitationId,
+        organizationId,
+        email: inviteeEmail,
+        token,
+        status: 'canceled',
+        expiresAt: futureDate,
+        role: 'member',
+        inviterId: userId,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+
+      const result = await validateInvitationToken(token);
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('canceled');
+      expect(result.invitation).toBeUndefined();
     });
   });
 });
