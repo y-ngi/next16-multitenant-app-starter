@@ -346,6 +346,20 @@ export interface RespondToInvitationInput {
 }
 
 /**
+ * Server-only helper to check whether an email address already has a
+ * registered user account. Used to route invitation emails and the
+ * invitation acceptance screen to either the login or signup flow.
+ */
+export async function checkEmailHasAccount(email: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, email))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * Server-only function to validate an invitation token.
  * Returns validation result with details about the invitation status.
  * Distinguishes between different invalid states: not-found, expired, already-used, and canceled.
@@ -536,13 +550,25 @@ export async function createInvitation(
     const inviterName = inviterUsers[0]?.name || 'Team Member';
     const organizationName = orgs[0]?.name || 'Organization';
 
-    // 6. Send invitation email
+    // 6. Determine whether the invitee already has an account, and build the
+    // appropriate action link: existing users are routed straight to login,
+    // unregistered invitees are routed straight to signup. Both carry the
+    // invitation token so that /login can restore the callback to the
+    // invitation acceptance screen after authentication.
+    const isExistingUser = await checkEmailHasAccount(email);
+
+    const actionLink = isExistingUser
+      ? `${baseURL}/login?email=${encodeURIComponent(email)}&token=${token}`
+      : `${baseURL}/login?email=${encodeURIComponent(email)}&mode=signup&token=${token}`;
+
+    // 7. Send invitation email
     const inviteLink = `${baseURL}/invitations/accept?token=${token}`;
     const mailSent = await sendInvitationEmail({
       toEmail: email,
       organizationName,
       inviterName,
-      inviteLink,
+      actionLink,
+      isExistingUser,
     });
 
     // 7. Return invitation with mail status
@@ -726,77 +752,6 @@ export async function respondToInvitation(
       ok: false,
       error: errorMessage,
     };
-  }
-}
-
-/**
- * Server-only function to process pending invitations for a newly registered user.
- * When a user registers with an email that has valid pending invitations,
- * automatically creates memberships and updates invitation statuses to 'accepted'.
- * Called from auth hooks (databaseHooks.user.create.after) when a user is created.
- *
- * Criteria for processing:
- * - Invitation status must be 'pending'
- * - Invitation must not be expired (expiresAt >= now)
- * - User's email must match the invitation email
- *
- * Skips invalid invitations silently (expired, canceled, already-used).
- */
-export async function processPendingInvitationsForUser(
-  userId: string,
-  email: string
-): Promise<void> {
-  try {
-    // 1. Find all invitations for this email via select
-    const pendingInvitations = await db
-      .select()
-      .from(invitation)
-      .where(and(eq(invitation.email, email), eq(invitation.status, 'pending' as InvitationStatus)));
-
-    if (pendingInvitations.length === 0) {
-      // No pending invitations, nothing to do
-      return;
-    }
-
-    // 2. Process each valid (non-expired) invitation
-    const now = new Date();
-
-    for (const inv of pendingInvitations) {
-      // Check if invitation has expired
-      if (inv.expiresAt < now) {
-        // Skip expired invitations (do not update them, just skip)
-        continue;
-      }
-
-      // 3. Create membership and update invitation within a transaction
-      await db.transaction(async (tx) => {
-        const membershipId = randomUUID();
-        const createdAt = new Date();
-
-        // Create membership with the role from the invitation
-        await tx
-          .insert(membership)
-          .values({
-            id: membershipId,
-            organizationId: inv.organizationId,
-            userId,
-            role: inv.role as OrganizationRole,
-            createdAt,
-          });
-
-        // Update invitation status to accepted
-        await tx
-          .update(invitation)
-          .set({
-            status: 'accepted' as InvitationStatus,
-            updatedAt: new Date(),
-          })
-          .where(eq(invitation.id, inv.id));
-      });
-    }
-  } catch (error) {
-    // Log error but do not throw - this is a background operation during user creation
-    console.error('[processPendingInvitationsForUser] Error processing invitations:', error);
   }
 }
 

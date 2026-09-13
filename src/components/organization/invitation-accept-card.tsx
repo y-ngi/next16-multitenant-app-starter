@@ -3,6 +3,7 @@
 import { useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { respondToInvitationAction } from '@/app/actions/organization';
+import { authClient } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -23,6 +24,7 @@ interface InvitationAcceptCardProps {
   readonly invitation: InvitationDetails;
   readonly isLoggedIn: boolean;
   readonly currentUserEmail: string | null;
+  readonly inviteeHasAccount: boolean;
   readonly onSuccess?: () => void;
 }
 
@@ -31,6 +33,7 @@ export function InvitationAcceptCard({
   invitation,
   isLoggedIn,
   currentUserEmail,
+  inviteeHasAccount,
   onSuccess,
 }: InvitationAcceptCardProps): ReactNode {
   const [isLoading, setIsLoading] = useState(false);
@@ -98,6 +101,28 @@ export function InvitationAcceptCard({
     }
   };
 
+  // Handle re-login: sign out of the current (mismatched) account, then
+  // redirect straight to the invited email's login/signup flow.
+  const handleReLogin = async () => {
+    setIsLoading(true);
+    const reLoginPath = inviteeHasAccount
+      ? `/login?email=${encodeURIComponent(invitation.email)}&token=${token}`
+      : `/login?email=${encodeURIComponent(invitation.email)}&mode=signup&token=${token}`;
+
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          router.push(reLoginPath);
+          router.refresh();
+        },
+        onError: () => {
+          setIsLoading(false);
+          setError('ログアウトに失敗しました');
+        },
+      },
+    });
+  };
+
   // Show email mismatch warning
   if (isEmailMismatch) {
     return (
@@ -109,29 +134,13 @@ export function InvitationAcceptCard({
           <Alert className="border-yellow-200 bg-yellow-50">
             <AlertCircle className="h-4 w-4 text-yellow-600" />
             <AlertDescription className="text-sm text-yellow-800">
-              他のユーザへの招待ですので、招待されたメールアドレスで再ログインしてください。
+              現在ログインされている会員への招待ではありません。招待を受けたメールアドレスで再ログインしてください。
             </AlertDescription>
           </Alert>
 
-          <div className="bg-gray-50 p-3 rounded-md">
-            <p className="text-sm text-gray-600">招待メールアドレス:</p>
-            <p className="font-medium text-gray-900">{invitation.email}</p>
-            <p className="text-sm text-gray-600 mt-2">現在ログイン中:</p>
-            <p className="font-medium text-gray-900">{currentUserEmail}</p>
-          </div>
-
-          <div className="flex gap-2">
-            <Link href="/api/auth/logout" className="flex-1">
-              <Button variant="destructive" className="w-full">
-                ログアウト
-              </Button>
-            </Link>
-            <Link href="/auth/signin" className="flex-1">
-              <Button variant="outline" className="w-full">
-                ログイン
-              </Button>
-            </Link>
-          </div>
+          <Button onClick={handleReLogin} disabled={isLoading} className="w-full">
+            {isLoading ? '処理中...' : '再ログイン'}
+          </Button>
         </CardContent>
       </Card>
     );
@@ -139,6 +148,10 @@ export function InvitationAcceptCard({
 
   // Show unauthenticated state
   if (!isLoggedIn) {
+    const authLink = inviteeHasAccount
+      ? `/login?email=${encodeURIComponent(invitation.email)}&token=${token}`
+      : `/login?email=${encodeURIComponent(invitation.email)}&mode=signup&token=${token}`;
+
     return (
       <Card className="w-full max-w-md mx-auto">
         <CardHeader>
@@ -154,23 +167,18 @@ export function InvitationAcceptCard({
           <Alert className="border-blue-200 bg-blue-50">
             <AlertCircle className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-sm text-blue-800">
-              招待されたメールアドレスでログインして、招待を受け入れてください。
+              {inviteeHasAccount
+                ? '招待されたメールアドレスでログインして、招待を受け入れてください。'
+                : '招待されたメールアドレスで新規登録して、招待を受け入れてください。'}
             </AlertDescription>
           </Alert>
 
-          <div className="flex flex-col gap-2">
-            <Link href={`/login?email=${encodeURIComponent(invitation.email)}&token=${token}`} className="w-full">
-              <Button className="w-full">ログイン</Button>
-            </Link>
-            <Link href={`/login?email=${encodeURIComponent(invitation.email)}&mode=signup&token=${token}`}>
-              <Button variant="outline" className="w-full">
-                新規登録
-              </Button>
-            </Link>
-          </div>
+          <Link href={authLink} className="w-full block">
+            <Button className="w-full">{inviteeHasAccount ? 'ログイン' : '新規登録'}</Button>
+          </Link>
 
           <p className="text-xs text-gray-500 text-center">
-            招待先メールアドレス以外でのログインはご遠慮ください
+            招待を受けたメールアドレス以外では、組織に参加できません。
           </p>
         </CardContent>
       </Card>

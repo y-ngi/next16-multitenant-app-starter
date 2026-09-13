@@ -25,14 +25,15 @@ describe('Invitation Mailer', () => {
   });
 
   describe('sendInvitationEmail', () => {
-    it('招待メールを正しいパラメータで送信できること', async () => {
+    it('招待メールを正しいパラメータで送信できること（既存ユーザー：ログイン導線）', async () => {
       mockSendMail.mockResolvedValueOnce({ messageId: 'test-123' });
 
       const params: SendInvitationEmailParams = {
         toEmail: 'newmember@example.com',
         organizationName: 'Test Organization',
         inviterName: 'John Doe',
-        inviteLink: 'https://example.com/invite/token123',
+        actionLink: 'https://example.com/login?token=token123',
+        isExistingUser: true,
       };
 
       const result = await sendInvitationEmail(params);
@@ -45,7 +46,28 @@ describe('Invitation Mailer', () => {
       expect(callArgs.subject).toContain('Test Organization');
       expect(callArgs.html).toContain('Test Organization');
       expect(callArgs.html).toContain('John Doe');
-      expect(callArgs.html).toContain('https://example.com/invite/token123');
+      expect(callArgs.html).toContain('https://example.com/login?token=token123');
+      expect(callArgs.html).toContain('ログインして招待を確認する');
+    });
+
+    it('未登録ユーザーの場合、新規登録導線の文言でメールを送信すること', async () => {
+      mockSendMail.mockResolvedValueOnce({ messageId: 'test-789' });
+
+      const params: SendInvitationEmailParams = {
+        toEmail: 'newmember@example.com',
+        organizationName: 'Test Organization',
+        inviterName: 'John Doe',
+        actionLink: 'https://example.com/login?mode=signup&token=token123',
+        isExistingUser: false,
+      };
+
+      const result = await sendInvitationEmail(params);
+
+      expect(result).toBe(true);
+
+      const callArgs = mockSendMail.mock.calls[0][0];
+      expect(callArgs.html).toContain('https://example.com/login?mode=signup&token=token123');
+      expect(callArgs.html).toContain('新規登録して招待を確認する');
     });
 
     it('メール送信失敗時は false を返すこと', async () => {
@@ -55,7 +77,8 @@ describe('Invitation Mailer', () => {
         toEmail: 'newmember@example.com',
         organizationName: 'Test Organization',
         inviterName: 'John Doe',
-        inviteLink: 'https://example.com/invite/token123',
+        actionLink: 'https://example.com/login?token=token123',
+        isExistingUser: true,
       };
 
       const result = await sendInvitationEmail(params);
@@ -71,7 +94,8 @@ describe('Invitation Mailer', () => {
         toEmail: 'newmember@example.com',
         organizationName: 'Test Organization',
         inviterName: 'John Doe',
-        inviteLink: 'https://example.com/invite/token123',
+        actionLink: 'https://example.com/login?token=token123',
+        isExistingUser: true,
       };
 
       // Should not throw
@@ -85,7 +109,8 @@ describe('Invitation Mailer', () => {
         toEmail: 'alice@company.com',
         organizationName: 'Acme Corp',
         inviterName: 'Bob Smith',
-        inviteLink: 'https://example.com/invite/abc123def456',
+        actionLink: 'https://example.com/login?token=abc123def456',
+        isExistingUser: true,
       };
 
       const result = await sendInvitationEmail(params);
@@ -96,7 +121,7 @@ describe('Invitation Mailer', () => {
       expect(callArgs.to).toBe('alice@company.com');
       expect(callArgs.html).toContain('Acme Corp');
       expect(callArgs.html).toContain('Bob Smith');
-      expect(callArgs.html).toContain('https://example.com/invite/abc123def456');
+      expect(callArgs.html).toContain('https://example.com/login?token=abc123def456');
     });
   });
 

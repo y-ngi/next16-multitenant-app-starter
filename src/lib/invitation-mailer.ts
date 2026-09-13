@@ -11,7 +11,8 @@ export interface SendInvitationEmailParams {
   readonly toEmail: string;
   readonly organizationName: string;
   readonly inviterName: string;
-  readonly inviteLink: string;
+  readonly actionLink: string;
+  readonly isExistingUser: boolean;
 }
 
 export interface SendAcceptanceNotificationParams {
@@ -29,7 +30,12 @@ export interface SendAcceptanceNotificationParams {
 export async function sendInvitationEmail(
   params: SendInvitationEmailParams
 ): Promise<boolean> {
-  const { toEmail, organizationName, inviterName, inviteLink } = params;
+  const { toEmail, organizationName, inviterName, actionLink, isExistingUser } = params;
+
+  const ctaLabel = isExistingUser ? 'ログインして招待を確認する' : '新規登録して招待を確認する';
+  const guidance = isExistingUser
+    ? '以下のリンクからログインして、招待を承認または拒否してください。'
+    : '以下のリンクから新規登録を行い、招待を承認または拒否してください。';
 
   try {
     const info = await transporter.sendMail({
@@ -41,10 +47,10 @@ export async function sendInvitationEmail(
           <h2>${organizationName}へのご招待</h2>
           <p>${toEmail} 様</p>
           <p><strong>${inviterName}</strong> さんが、あなたを <strong>${organizationName}</strong> へ招待しました。</p>
-          <p>以下のリンクをクリックして、招待を承認または拒否してください。</p>
+          <p>${guidance}</p>
           <p style="margin: 20px 0;">
-            <a href="${inviteLink}" style="padding: 10px 20px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 5px; display: inline-block;">
-              招待を確認する
+            <a href="${actionLink}" style="padding: 10px 20px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 5px; display: inline-block;">
+              ${ctaLabel}
             </a>
           </p>
           <p style="color: #666; font-size: 12px;">

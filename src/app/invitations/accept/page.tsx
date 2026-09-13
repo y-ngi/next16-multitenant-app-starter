@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { headers } from 'next/headers';
 import { auth } from '@/lib/auth';
 import { validateInvitationTokenAction } from '@/app/actions/organization';
+import { checkEmailHasAccount } from '@/lib/organization-lifecycle';
 import { InvitationAcceptCard } from '@/components/organization/invitation-accept-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -75,12 +76,17 @@ async function InvitationAcceptContent({ token }: { readonly token: string | nul
   const isLoggedIn = !!session?.user;
   const currentUserEmail = session?.user?.email || null;
 
+  // Whether the invited email already has a registered account. Used to
+  // decide which single CTA (login vs signup) to route the invitee to.
+  const inviteeHasAccount = await checkEmailHasAccount(validationResult.invitation!.email);
+
   return (
     <InvitationAcceptCard
       token={token}
       invitation={validationResult.invitation!}
       isLoggedIn={isLoggedIn}
       currentUserEmail={currentUserEmail}
+      inviteeHasAccount={inviteeHasAccount}
     />
   );
 }

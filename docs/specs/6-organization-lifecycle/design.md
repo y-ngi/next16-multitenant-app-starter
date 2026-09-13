@@ -9,7 +9,7 @@
 - 認証済みユーザによる新規組織の作成と作成者への `owner` ロール自動割り当て。
 - `owner` によるメールアドレス指定の組織招待（14日間有効）と Nodemailer 経由のメール通知。
 - 既存ユーザーによる招待の承諾（`member` として所属追加＆招待者通知）および拒否。
-- 未登録ユーザーに対する招待先メールアドレス固定の登録フローおよび登録完了時の自動所属。
+- 未登録ユーザーに対する招待先メールアドレス固定の登録フロー。登録完了後は既存ユーザーと同一の招待承諾画面へ遷移し、明示的な承諾・拒否操作を必須とする。
 - 招待期限切れ、再招待による旧招待無効化、送信失敗時の招待先限定リンク手動送付機能。
 - ログインアカウント不一致時の安全なエラー表示と再ログイン誘導（要件 4.4）。
 - 組織メンバーによる所属組織一覧および自組織のメンバー一覧取得。
@@ -28,7 +28,7 @@
 
 - 組織の新規作成および初期 `owner` メンバーシップの生成。
 - 招待レコード (`invitation`) の作成、トークン生成、有効期限（14日）チェック、ステータス遷移（`pending` / `accepted` / `rejected` / `expired` / `canceled`）。
-- 招待通知メールおよび承諾通知メールの送信ロジック (`invitation-mailer.ts`)。
+- 招待通知メールおよび承諾通知メールの送信ロジック (`invitation-mailer.ts`)。招待先メールアドレスが既存アカウントか未登録かに応じて、ログイン導線／新規登録導線を出し分ける。
 - 招待トークンの検証、未登録者のメアド固定登録による所属処理、別アカウントログイン時のガード。
 - 組織メンバーによる所属組織一覧および所属組織のメンバー一覧の照会。
 - `owner` による招待履歴および未受諾招待の限定リンク照会。
@@ -213,7 +213,7 @@ sequenceDiagram
 | 2.1, 2.2 | Owner による招待作成とメール通知 | OrganizationLifecycle, Mailer | `createInvitation` | 招待発行フロー |
 | 2.3, 2.4 | 招待の承認・拒否と所属生成・招待者通知 | OrganizationLifecycle, Mailer | `respondToInvitation` | 招待承諾フロー |
 | 2.5 | 重複所属の防止 | OrganizationLifecycle | `createInvitation` | 招待発行フロー |
-| 3.1, 3.2, 3.3 | 未登録招待先のメールアドレス固定登録と自動参加 | InvitationAcceptPage, AuthForm | `validateInvitationToken`, `acceptInvitation` | 招待承諾フロー |
+| 3.1, 3.2, 3.3 | 未登録招待先のメールアドレス固定登録と招待承諾画面への遷移 | InvitationAcceptPage, AuthForm | `validateInvitationToken`, `respondToInvitation` | 招待承諾フロー |
 | 4.1 | 招待の14日間有効期限 | Schema, OrganizationLifecycle | `expiresAt` check | 招待承諾フロー |
 | 4.2 | 再招待時の旧招待無効化 | OrganizationLifecycle | `createInvitation` | 招待発行フロー |
 | 4.3 | 無効・期限切れ招待の拒否 | OrganizationLifecycle | `validateInvitationToken` | 招待承諾フロー |
@@ -343,7 +343,8 @@ export interface SendInvitationEmailParams {
   readonly toEmail: string;
   readonly organizationName: string;
   readonly inviterName: string;
-  readonly inviteLink: string;
+  readonly actionLink: string;
+  readonly isExistingUser: boolean;
 }
 
 export interface SendAcceptanceNotificationParams {
