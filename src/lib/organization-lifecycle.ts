@@ -1,8 +1,10 @@
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { eq, and } from 'drizzle-orm';
-import { organization, membership, user, type OrganizationRole } from '@/db/schema';
+import { organization, membership, user, invitation, type OrganizationRole, type InvitationStatus } from '@/db/schema';
 import { randomUUID } from 'crypto';
+import { requireOrganizationAccess } from '@/lib/organization-authz';
+import { sendInvitationEmail } from '@/lib/invitation-mailer';
 
 export interface CreateOrganizationInput {
   readonly headers: Headers;
@@ -252,6 +254,162 @@ export async function getOrganizationMembers(
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch members';
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+}
+
+export interface CreateInvitationInput {
+  readonly headers: Headers;
+  readonly organizationId: string;
+  readonly email: string;
+  readonly baseURL: string;
+}
+
+export interface CreateInvitationResult {
+  readonly ok: boolean;
+  readonly invitation?: {
+    readonly id: string;
+    readonly email: string;
+    readonly status: InvitationStatus;
+    readonly token: string;
+    readonly inviteLink: string;
+    readonly expiresAt: Date;
+    readonly createdAt: Date;
+  };
+  readonly mailSent?: boolean;
+  readonly error?: string;
+}
+
+/**
+ * Server-only function to create an invitation for a user to join an organization.
+ * Only organization owners can create invitations.
+ * If an invitation already exists for this email, it is canceled and a new one is issued.
+ * If sending the notification email fails, the invitation remains pending.
+ */
+export async function createInvitation(
+  input: CreateInvitationInput
+): Promise<CreateInvitationResult> {
+  const { headers, organizationId, email, baseURL } = input;
+
+  try {
+    // 1. Check authorization (only owner can invite)
+    const authz = await requireOrganizationAccess({
+      headers,
+      organizationId,
+      requiredRole: 'owner',
+    });
+
+    if (!authz.ok) {
+      const errorMsg =
+        authz.reason === 'insufficient-role' ? 'Only organization owners can create invitations'
+        : authz.reason === 'unauthenticated' ? 'Unauthenticated'
+        : authz.reason === 'organization-not-found' ? 'Organization not found'
+        : 'Not a member of this organization';
+      return { ok: false, error: errorMsg };
+    }
+
+    const userId = authz.userId;
+
+    // 2. Check if the email is already a member of the organization
+    // Get all memberships with their user info
+    const existingMembers = await db.query.membership.findMany({
+      where: eq(membership.organizationId, organizationId),
+      with: {
+        user: true,
+      },
+    });
+
+    const alreadyMember = existingMembers.some((m) => m.user.email === email);
+    if (alreadyMember) {
+      return { ok: false, error: '既に組織に所属しています' };
+    }
+
+    // 3. Check for existing pending invitation and cancel it
+    const existingInvitation = await db.query.invitation.findFirst({
+      where: and(
+        eq(invitation.organizationId, organizationId),
+        eq(invitation.email, email),
+        eq(invitation.status, 'pending' as InvitationStatus),
+      ),
+    });
+
+    if (existingInvitation) {
+      // Cancel the existing invitation
+      await db
+        .update(invitation)
+        .set({ status: 'canceled' as InvitationStatus, updatedAt: new Date() })
+        .where(eq(invitation.id, existingInvitation.id));
+    }
+
+    // 4. Create new invitation
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days
+    const token = randomUUID();
+    const invitationId = randomUUID();
+
+    const newInvitation = await db
+      .insert(invitation)
+      .values({
+        id: invitationId,
+        organizationId,
+        email,
+        role: 'member' as OrganizationRole,
+        token,
+        status: 'pending' as InvitationStatus,
+        inviterId: userId,
+        expiresAt,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    if (!newInvitation || newInvitation.length === 0) {
+      return { ok: false, error: 'Failed to create invitation' };
+    }
+
+    const createdInvitation = newInvitation[0];
+
+    // 5. Get inviter name and organization name for the email
+    const inviterUser = await db.query.user.findFirst({
+      where: eq(user.id, userId),
+    });
+
+    const org = await db.query.organization.findFirst({
+      where: eq(organization.id, organizationId),
+    });
+
+    const inviterName = inviterUser?.name || 'Team Member';
+    const organizationName = org?.name || 'Organization';
+
+    // 6. Send invitation email
+    const inviteLink = `${baseURL}/invitations/accept?token=${token}`;
+    const mailSent = await sendInvitationEmail({
+      toEmail: email,
+      organizationName,
+      inviterName,
+      inviteLink,
+    });
+
+    // 7. Return invitation with mail status
+    // Note: We return mailSent status even if it failed, and the invitation remains pending
+    return {
+      ok: true,
+      invitation: {
+        id: createdInvitation.id,
+        email: createdInvitation.email,
+        status: createdInvitation.status as InvitationStatus,
+        token: createdInvitation.token,
+        inviteLink,
+        expiresAt: createdInvitation.expiresAt,
+        createdAt: createdInvitation.createdAt,
+      },
+      mailSent,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to create invitation';
     return {
       ok: false,
       error: errorMessage,
