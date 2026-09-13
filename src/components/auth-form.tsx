@@ -90,7 +90,7 @@ export function AuthForm({
         setError(res.error.message || '認証コードが正しくありません');
         setLoading(false);
       } else {
-        router.push(callbackURL || '/dashboard');
+        router.push(callbackURL || '/dashboard/personal');
         router.refresh();
       }
       return;
@@ -149,7 +149,7 @@ export function AuthForm({
         setIsOtpStep(true);
         setLoading(false);
       } else {
-        router.push(callbackURL || '/dashboard');
+        router.push(callbackURL || '/dashboard/personal');
         router.refresh();
       }
     }

@@ -70,9 +70,9 @@ export function InvitationAcceptCard({
         onSuccess();
       }
 
-      // Redirect to dashboard after a short delay
+      // Redirect to personal dashboard after a short delay
       setTimeout(() => {
-        router.push('/dashboard');
+        router.push('/dashboard/personal');
       }, 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -200,7 +200,7 @@ export function InvitationAcceptCard({
             </AlertDescription>
           </Alert>
 
-          <Link href="/dashboard" className="w-full">
+          <Link href="/dashboard/personal" className="w-full">
             <Button className="w-full">ダッシュボードに戻る</Button>
           </Link>
         </CardContent>

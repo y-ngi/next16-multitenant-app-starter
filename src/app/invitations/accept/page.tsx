@@ -28,7 +28,7 @@ async function InvitationAcceptContent({ token }: { readonly token: string | nul
               招待が見つかりません
             </AlertDescription>
           </Alert>
-          <Link href="/dashboard">
+          <Link href="/dashboard/personal">
             <Button className="w-full">ダッシュボードに戻る</Button>
           </Link>
         </CardContent>
@@ -61,7 +61,7 @@ async function InvitationAcceptContent({ token }: { readonly token: string | nul
               {message}
             </AlertDescription>
           </Alert>
-          <Link href="/dashboard">
+          <Link href="/dashboard/personal">
             <Button className="w-full">ダッシュボードに戻る</Button>
           </Link>
         </CardContent>
