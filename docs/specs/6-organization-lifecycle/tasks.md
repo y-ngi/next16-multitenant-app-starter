@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. invitation スキーマの契約テストと実装を完了する
+- [x] 1. invitation スキーマの契約テストと実装を完了する
   - `invitationStatusEnum`（`pending`/`accepted`/`rejected`/`expired`/`canceled`）と `invitation` テーブル（organizationId, email, role, 一意な token, status, inviterId, expiresAt, timestamps）を `src/db/schema.ts` に追加する。
   - 開発・テスト環境は `pnpm db:push` 等でスキーマを反映し、一意トークン制約・外部キー制約（cascade）・インデックスを検証する契約テストを先に作成してから GREEN にする。
   - 完了時、invitation スキーマ契約テストを含む全体テストが通過する。

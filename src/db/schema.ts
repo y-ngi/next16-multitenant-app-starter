@@ -108,3 +108,38 @@ export const membership = pgTable(
     index('membership_user_id_idx').on(table.userId),
   ],
 );
+
+export const invitationStatusEnum = pgEnum('invitation_status', [
+  'pending',
+  'accepted',
+  'rejected',
+  'expired',
+  'canceled',
+]);
+
+export type InvitationStatus = (typeof invitationStatusEnum.enumValues)[number];
+
+export const invitation = pgTable(
+  'invitation',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    role: organizationRole('role').notNull().default('member'),
+    token: text('token').notNull().unique(),
+    status: invitationStatusEnum('status').notNull().default('pending'),
+    inviterId: text('inviter_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').notNull(),
+    updatedAt: timestamp('updated_at').notNull(),
+  },
+  (table) => [
+    index('invitation_organization_id_idx').on(table.organizationId),
+    index('invitation_email_idx').on(table.email),
+    index('invitation_token_idx').on(table.token),
+  ],
+);
