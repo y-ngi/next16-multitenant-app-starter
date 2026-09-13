@@ -4,6 +4,8 @@ import {
   getUserOrganizationsAction,
   createInvitationAction,
   getInvitationsAction,
+  validateInvitationTokenAction,
+  respondToInvitationAction,
 } from './organization';
 
 // Mock the functions
@@ -12,6 +14,8 @@ vi.mock('@/lib/organization-lifecycle', () => ({
   getUserOrganizations: vi.fn(),
   createInvitation: vi.fn(),
   getInvitations: vi.fn(),
+  validateInvitationToken: vi.fn(),
+  respondToInvitation: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -23,6 +27,8 @@ import {
   getUserOrganizations,
   createInvitation,
   getInvitations,
+  validateInvitationToken,
+  respondToInvitation,
 } from '@/lib/organization-lifecycle';
 import { headers } from 'next/headers';
 
@@ -275,4 +281,178 @@ describe('Organization Server Actions', () => {
       expect(result.invitations).toHaveLength(0);
     });
   });
+
+  describe('validateInvitationTokenAction', () => {
+    it('有効な招待トークンを検証できること', async () => {
+      const mockResult = {
+        valid: true,
+        invitation: {
+          id: 'inv-1',
+          organizationId: 'org-1',
+          organizationName: 'Test Org',
+          email: 'user@example.com',
+          role: 'member' as const,
+        },
+      };
+
+      vi.mocked(validateInvitationToken).mockResolvedValueOnce(mockResult);
+
+      const result = await validateInvitationTokenAction('valid-token');
+
+      expect(validateInvitationToken).toHaveBeenCalledWith('valid-token');
+      expect(result.valid).toBe(true);
+      expect(result.invitation?.email).toBe('user@example.com');
+    });
+
+    it('期限切れの招待を識別すること', async () => {
+      const mockResult = {
+        valid: false,
+        reason: 'expired' as const,
+      };
+
+      vi.mocked(validateInvitationToken).mockResolvedValueOnce(mockResult);
+
+      const result = await validateInvitationTokenAction('expired-token');
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('expired');
+    });
+
+    it('見つからない招待トークンを識別すること', async () => {
+      const mockResult = {
+        valid: false,
+        reason: 'not-found' as const,
+      };
+
+      vi.mocked(validateInvitationToken).mockResolvedValueOnce(mockResult);
+
+      const result = await validateInvitationTokenAction('invalid-token');
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('not-found');
+    });
+
+    it('既に使用された招待を識別すること', async () => {
+      const mockResult = {
+        valid: false,
+        reason: 'already-used' as const,
+      };
+
+      vi.mocked(validateInvitationToken).mockResolvedValueOnce(mockResult);
+
+      const result = await validateInvitationTokenAction('used-token');
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('already-used');
+    });
+
+    it('キャンセルされた招待を識別すること', async () => {
+      const mockResult = {
+        valid: false,
+        reason: 'canceled' as const,
+      };
+
+      vi.mocked(validateInvitationToken).mockResolvedValueOnce(mockResult);
+
+      const result = await validateInvitationTokenAction('canceled-token');
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('canceled');
+    });
+  });
+
+  describe('respondToInvitationAction', () => {
+    it('招待を承諾できること', async () => {
+      const mockResult = {
+        ok: true,
+      };
+
+      vi.mocked(respondToInvitation).mockResolvedValueOnce(mockResult);
+
+      const result = await respondToInvitationAction('valid-token', true);
+
+      expect(respondToInvitation).toHaveBeenCalledWith({
+        headers: mockHeaders,
+        token: 'valid-token',
+        accept: true,
+      });
+
+      expect(result.ok).toBe(true);
+    });
+
+    it('招待を拒否できること', async () => {
+      const mockResult = {
+        ok: true,
+      };
+
+      vi.mocked(respondToInvitation).mockResolvedValueOnce(mockResult);
+
+      const result = await respondToInvitationAction('valid-token', false);
+
+      expect(respondToInvitation).toHaveBeenCalledWith({
+        headers: mockHeaders,
+        token: 'valid-token',
+        accept: false,
+      });
+
+      expect(result.ok).toBe(true);
+    });
+
+    it('認証されていないユーザーは招待に応答できないこと', async () => {
+      const mockResult = {
+        ok: false,
+        error: 'Unauthenticated user cannot respond to invitation',
+      };
+
+      vi.mocked(respondToInvitation).mockResolvedValueOnce(mockResult);
+
+      const result = await respondToInvitationAction('valid-token', true);
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('Unauthenticated user cannot respond to invitation');
+    });
+
+    it('メールアドレスが一致しない場合、特定のエラーメッセージを返すこと', async () => {
+      const mockResult = {
+        ok: false,
+        error: '他のユーザへの招待ですので、招待されたメールアドレスで再ログインしてください。',
+      };
+
+      vi.mocked(respondToInvitation).mockResolvedValueOnce(mockResult);
+
+      const result = await respondToInvitationAction('valid-token', true);
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('招待されたメールアドレスで再ログインしてください');
+    });
+
+    it('期限切れの招待には応答できないこと', async () => {
+      const mockResult = {
+        ok: false,
+        error: 'Invitation has expired',
+      };
+
+      vi.mocked(respondToInvitation).mockResolvedValueOnce(mockResult);
+
+      const result = await respondToInvitationAction('expired-token', true);
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('Invitation has expired');
+    });
+
+    it('既に使用された招待には応答できないこと', async () => {
+      const mockResult = {
+        ok: false,
+        error: 'Invitation has already been used',
+      };
+
+      vi.mocked(respondToInvitation).mockResolvedValueOnce(mockResult);
+
+      const result = await respondToInvitationAction('used-token', true);
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('Invitation has already been used');
+    });
+  });
 });
+
