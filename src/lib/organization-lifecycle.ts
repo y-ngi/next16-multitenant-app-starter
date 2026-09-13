@@ -34,6 +34,7 @@ export async function createOrganization(
   // 1. Validate authentication
   const session = await auth.api.getSession({ headers });
   if (!session || !session.user) {
+    console.error('[createOrganization] Unauthenticated user attempted to create organization');
     return {
       ok: false,
       error: 'Unauthenticated user cannot create organization',
@@ -44,6 +45,7 @@ export async function createOrganization(
 
   // 2. Validate input
   if (!name || name.trim() === '') {
+    console.error('[createOrganization] Validation failed: Organization name is required');
     return {
       ok: false,
       error: 'Organization name is required',
@@ -51,6 +53,7 @@ export async function createOrganization(
   }
 
   if (!slug || slug.trim() === '') {
+    console.error('[createOrganization] Validation failed: Organization slug is required');
     return {
       ok: false,
       error: 'Organization slug is required',
@@ -58,13 +61,16 @@ export async function createOrganization(
   }
 
   try {
-    // 3. Check slug uniqueness
+    // 3. Check slug uniqueness via select
     const normalizedSlug = slug.trim().toLowerCase();
-    const existingOrg = await db.query.organization.findFirst({
-      where: eq(organization.slug, normalizedSlug),
-    });
+    const existingOrgs = await db
+      .select({ id: organization.id })
+      .from(organization)
+      .where(eq(organization.slug, normalizedSlug))
+      .limit(1);
 
-    if (existingOrg) {
+    if (existingOrgs.length > 0) {
+      console.warn(`[createOrganization] Duplicate slug requested: ${normalizedSlug}`);
       return {
         ok: false,
         error: '指定された組織タグは既に使用されています。別のタグを指定してください。',
@@ -114,6 +120,7 @@ export async function createOrganization(
       return createdOrg;
     });
 
+    console.log(`[createOrganization] Successfully created organization: ${result.name} (${result.id})`);
     return {
       ok: true,
       organization: {
@@ -123,6 +130,7 @@ export async function createOrganization(
       },
     };
   } catch (error) {
+    console.error('[createOrganization] Error during organization creation:', error);
     if (error instanceof Error && error.message.includes('organization_slug_unique')) {
       return {
         ok: false,
@@ -164,6 +172,7 @@ export async function getUserOrganizations(
   // 1. Validate authentication
   const session = await auth.api.getSession({ headers });
   if (!session || !session.user) {
+    console.error('[getUserOrganizations] Unauthenticated request');
     return {
       ok: false,
       error: 'Unauthenticated',
@@ -197,6 +206,7 @@ export async function getUserOrganizations(
       })),
     };
   } catch (error) {
+    console.error('[getUserOrganizations] Database error fetching user organizations:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch organizations';
     return {
       ok: false,
@@ -251,6 +261,7 @@ export async function getOrganizationMembers(
       } else if (authResult.reason === 'insufficient-role') {
         errorMessage = 'Insufficient role to access this organization';
       }
+      console.warn(`[getOrganizationMembers] Authorization failed for org ${organizationId}: ${errorMessage}`);
       return {
         ok: false,
         error: errorMessage,
@@ -285,6 +296,7 @@ export async function getOrganizationMembers(
       })),
     };
   } catch (error) {
+    console.error(`[getOrganizationMembers] Error fetching members for org ${organizationId}:`, error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch members';
     return {
       ok: false,
@@ -341,16 +353,20 @@ export interface RespondToInvitationInput {
 export async function validateInvitationToken(token: string): Promise<ValidateTokenResult> {
   try {
     // 1. Find invitation by token
-    const inv = await db.query.invitation.findFirst({
-      where: eq(invitation.token, token),
-    });
+    const invRecords = await db
+      .select()
+      .from(invitation)
+      .where(eq(invitation.token, token))
+      .limit(1);
 
-    if (!inv) {
+    if (invRecords.length === 0) {
       return {
         valid: false,
         reason: 'not-found',
       };
     }
+
+    const inv = invRecords[0];
 
     // 2. Check invitation status
     if (inv.status === 'canceled') {
@@ -378,11 +394,13 @@ export async function validateInvitationToken(token: string): Promise<ValidateTo
 
     // 4. Valid invitation: status is 'pending' and not expired
     // Fetch organization name
-    const org = await db.query.organization.findFirst({
-      where: eq(organization.id, inv.organizationId),
-    });
+    const orgRecords = await db
+      .select({ name: organization.name })
+      .from(organization)
+      .where(eq(organization.id, inv.organizationId))
+      .limit(1);
 
-    if (!org) {
+    if (orgRecords.length === 0) {
       // Organization not found (should not happen in normal flow)
       return {
         valid: false,
@@ -395,12 +413,13 @@ export async function validateInvitationToken(token: string): Promise<ValidateTo
       invitation: {
         id: inv.id,
         organizationId: inv.organizationId,
-        organizationName: org.name,
+        organizationName: orgRecords[0].name,
         email: inv.email,
         role: inv.role as OrganizationRole,
       },
     };
-  } catch {
+  } catch (error) {
+    console.error('[validateInvitationToken] Error validating token:', error);
     // On error, treat as not-found
     return {
       valid: false,
@@ -434,40 +453,43 @@ export async function createInvitation(
         : authz.reason === 'unauthenticated' ? 'Unauthenticated'
         : authz.reason === 'organization-not-found' ? 'Organization not found'
         : 'Not a member of this organization';
+      console.warn(`[createInvitation] Authorization failed for org ${organizationId}: ${errorMsg}`);
       return { ok: false, error: errorMsg };
     }
 
     const userId = authz.userId;
 
     // 2. Check if the email is already a member of the organization
-    // Get all memberships with their user info
-    const existingMembers = await db.query.membership.findMany({
-      where: eq(membership.organizationId, organizationId),
-      with: {
-        user: true,
-      },
-    });
+    const existingMemberRows = await db
+      .select({ email: user.email })
+      .from(membership)
+      .innerJoin(user, eq(membership.userId, user.id))
+      .where(and(eq(membership.organizationId, organizationId), eq(user.email, email)))
+      .limit(1);
 
-    const alreadyMember = existingMembers.some((m) => (m.user as any)?.email === email);
-    if (alreadyMember) {
+    if (existingMemberRows.length > 0) {
       return { ok: false, error: '既に組織に所属しています' };
     }
 
     // 3. Check for existing pending invitation and cancel it
-    const existingInvitation = await db.query.invitation.findFirst({
-      where: and(
-        eq(invitation.organizationId, organizationId),
-        eq(invitation.email, email),
-        eq(invitation.status, 'pending' as InvitationStatus),
-      ),
-    });
+    const existingInvitations = await db
+      .select({ id: invitation.id })
+      .from(invitation)
+      .where(
+        and(
+          eq(invitation.organizationId, organizationId),
+          eq(invitation.email, email),
+          eq(invitation.status, 'pending' as InvitationStatus),
+        )
+      )
+      .limit(1);
 
-    if (existingInvitation) {
+    if (existingInvitations.length > 0) {
       // Cancel the existing invitation
       await db
         .update(invitation)
         .set({ status: 'canceled' as InvitationStatus, updatedAt: new Date() })
-        .where(eq(invitation.id, existingInvitation.id));
+        .where(eq(invitation.id, existingInvitations[0].id));
     }
 
     // 4. Create new invitation
@@ -493,22 +515,26 @@ export async function createInvitation(
       .returning();
 
     if (!newInvitation || newInvitation.length === 0) {
-      return { ok: false, error: 'Failed to create invitation' };
+      throw new Error('Failed to create invitation record');
     }
 
     const createdInvitation = newInvitation[0];
 
     // 5. Get inviter name and organization name for the email
-    const inviterUser = await db.query.user.findFirst({
-      where: eq(user.id, userId),
-    });
+    const inviterUsers = await db
+      .select({ name: user.name })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
 
-    const org = await db.query.organization.findFirst({
-      where: eq(organization.id, organizationId),
-    });
+    const orgs = await db
+      .select({ name: organization.name })
+      .from(organization)
+      .where(eq(organization.id, organizationId))
+      .limit(1);
 
-    const inviterName = inviterUser?.name || 'Team Member';
-    const organizationName = org?.name || 'Organization';
+    const inviterName = inviterUsers[0]?.name || 'Team Member';
+    const organizationName = orgs[0]?.name || 'Organization';
 
     // 6. Send invitation email
     const inviteLink = `${baseURL}/invitations/accept?token=${token}`;
@@ -520,7 +546,6 @@ export async function createInvitation(
     });
 
     // 7. Return invitation with mail status
-    // Note: We return mailSent status even if it failed, and the invitation remains pending
     return {
       ok: true,
       invitation: {
@@ -535,6 +560,7 @@ export async function createInvitation(
       mailSent,
     };
   } catch (error) {
+    console.error(`[createInvitation] Error creating invitation for org ${organizationId}:`, error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to create invitation';
     return {
       ok: false,
@@ -562,6 +588,7 @@ export async function respondToInvitation(
     // 1. Validate authentication
     const session = await auth.api.getSession({ headers });
     if (!session || !session.user) {
+      console.error('[respondToInvitation] Unauthenticated request');
       return {
         ok: false,
         error: 'Unauthenticated user cannot respond to invitation',
@@ -572,16 +599,21 @@ export async function respondToInvitation(
     const userEmail = session.user.email;
 
     // 2. Find invitation by token
-    const inv = await db.query.invitation.findFirst({
-      where: eq(invitation.token, token),
-    });
+    const invRecords = await db
+      .select()
+      .from(invitation)
+      .where(eq(invitation.token, token))
+      .limit(1);
 
-    if (!inv) {
+    if (invRecords.length === 0) {
+      console.warn(`[respondToInvitation] Invitation token not found: ${token}`);
       return {
         ok: false,
         error: 'Invitation not found',
       };
     }
+
+    const inv = invRecords[0];
 
     // 3. Validate invitation status and expiration
     if (inv.status === 'canceled') {
@@ -609,6 +641,7 @@ export async function respondToInvitation(
 
     // 5. Verify email matches
     if (userEmail !== inv.email) {
+      console.warn(`[respondToInvitation] Email mismatch: logged in as ${userEmail}, invited ${inv.email}`);
       return {
         ok: false,
         error: '他のユーザへの招待ですので、招待されたメールアドレスで再ログインしてください。',
@@ -644,19 +677,23 @@ export async function respondToInvitation(
       });
 
       // 7. Get inviter info and send acceptance notification email
-      const inviterUser = await db.query.user.findFirst({
-        where: eq(user.id, inv.inviterId),
-      });
+      const inviterUsers = await db
+        .select({ email: user.email })
+        .from(user)
+        .where(eq(user.id, inv.inviterId))
+        .limit(1);
 
-      const org = await db.query.organization.findFirst({
-        where: eq(organization.id, inv.organizationId),
-      });
+      const orgs = await db
+        .select({ name: organization.name })
+        .from(organization)
+        .where(eq(organization.id, inv.organizationId))
+        .limit(1);
 
-      if (inviterUser && org) {
+      if (inviterUsers.length > 0 && orgs.length > 0) {
         // Send notification email (do not fail if email fails)
         await sendAcceptanceNotificationEmail({
-          toEmail: inviterUser.email,
-          organizationName: org.name,
+          toEmail: inviterUsers[0].email,
+          organizationName: orgs[0].name,
           newMemberName: session.user.name || 'Team Member',
           newMemberEmail: inv.email,
         }).catch((error) => {
@@ -683,6 +720,7 @@ export async function respondToInvitation(
       };
     }
   } catch (error) {
+    console.error('[respondToInvitation] Error responding to invitation:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to respond to invitation';
     return {
       ok: false,
@@ -709,10 +747,11 @@ export async function processPendingInvitationsForUser(
   email: string
 ): Promise<void> {
   try {
-    // 1. Find all invitations for this email
-    const pendingInvitations = await db.query.invitation.findMany({
-      where: and(eq(invitation.email, email), eq(invitation.status, 'pending' as InvitationStatus)),
-    });
+    // 1. Find all invitations for this email via select
+    const pendingInvitations = await db
+      .select()
+      .from(invitation)
+      .where(and(eq(invitation.email, email), eq(invitation.status, 'pending' as InvitationStatus)));
 
     if (pendingInvitations.length === 0) {
       // No pending invitations, nothing to do
@@ -810,6 +849,7 @@ export async function getInvitations(
         : authz.reason === 'unauthenticated' ? 'Unauthenticated'
         : authz.reason === 'organization-not-found' ? 'Organization not found'
         : 'Not a member of this organization';
+      console.warn(`[getInvitations] Authorization failed for org ${organizationId}: ${errorMsg}`);
       return { ok: false, error: errorMsg };
     }
 
@@ -826,9 +866,10 @@ export async function getInvitations(
     }
 
     // 3. Fetch all invitations for the organization
-    const invitations = await db.query.invitation.findMany({
-      where: eq(invitation.organizationId, organizationId),
-    });
+    const invitations = await db
+      .select()
+      .from(invitation)
+      .where(eq(invitation.organizationId, organizationId));
 
     // 4. Calculate effective status and build response
     const now = new Date();
@@ -858,6 +899,7 @@ export async function getInvitations(
       invitations: result,
     };
   } catch (error) {
+    console.error(`[getInvitations] Error fetching invitations for org ${organizationId}:`, error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch invitations';
     return {
       ok: false,

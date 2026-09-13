@@ -62,6 +62,41 @@ import { organization, membership } from '@/db/schema';
 import { sendInvitationEmail, sendAcceptanceNotificationEmail } from '@/lib/invitation-mailer';
 import { requireOrganizationAccess } from '@/lib/organization-authz';
 
+function createSelectChain<T>(rows: T[], error?: Error) {
+  const promise = error ? Promise.reject(error) : Promise.resolve(rows);
+  const chain: any = {
+    from: vi.fn(() => chain),
+    where: vi.fn(() => chain),
+    limit: vi.fn(() => chain),
+    innerJoin: vi.fn(() => chain),
+    then: promise.then.bind(promise),
+    catch: promise.catch.bind(promise),
+    finally: promise.finally.bind(promise),
+  };
+
+  return chain;
+}
+
+function mockSelectOnce<T>(rows: T[]) {
+  vi.mocked(db.select).mockReturnValueOnce(createSelectChain(rows) as any);
+}
+
+function mockSelectRejectOnce(error: Error) {
+  vi.mocked(db.select).mockReturnValueOnce(createSelectChain([], error) as any);
+}
+
+function mockUpdateOnce(result: unknown = undefined, onSet?: (values: any) => void) {
+  const where = vi.fn().mockResolvedValue(result);
+  const set = vi.fn().mockImplementation((inputValues: any) => {
+    onSet?.(inputValues);
+    return { where };
+  });
+
+  vi.mocked(db.update).mockReturnValueOnce({ set } as any);
+
+  return { set, where };
+}
+
 describe('Organization Lifecycle', () => {
   const headers = new Headers({ authorization: '******' });
   const userId = 'user-123';
@@ -125,6 +160,8 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
+      mockSelectOnce([]);
+
       // Mock transaction
       vi.mocked(db.transaction).mockImplementation(async (callback: any) => {
         // Create mock tx object with insert method
@@ -162,6 +199,8 @@ describe('Organization Lifecycle', () => {
 
       let orgInsertCalled = false;
       let membershipInsertCalled = false;
+
+      mockSelectOnce([]);
 
       // Mock transaction
       vi.mocked(db.transaction).mockImplementation(async (callback: any) => {
@@ -213,6 +252,8 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
+      mockSelectOnce([]);
+
       // Mock transaction to create organization
       vi.mocked(db.transaction).mockImplementation(async (callback: any) => {
         const mockTx = {
@@ -241,13 +282,13 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: 'existing-org-id',
         name: 'Existing Org',
         slug: 'test-org',
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as any);
+      }]);
 
       const result = await createOrganization({
         headers,
@@ -341,7 +382,7 @@ describe('Organization Lifecycle', () => {
         user: existingUser,
       };
 
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([existingMembership] as any);
+      mockSelectOnce([existingMembership] as any);
 
       const result = await createInvitation({
         headers,
@@ -365,7 +406,7 @@ describe('Organization Lifecycle', () => {
       } as any);
 
       // Mock membership findMany to return empty array (not a member)
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       // Mock existing pending invitation
       const existingInvitation = {
@@ -381,7 +422,7 @@ describe('Organization Lifecycle', () => {
         role: 'member',
       };
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(existingInvitation as any);
+      mockSelectOnce([{ id: existingInvitation.id }]);
 
       // Mock update chain for canceling old invitation - verify status transition
       let updateCalled = false;
@@ -437,6 +478,9 @@ describe('Organization Lifecycle', () => {
       };
       vi.mocked(db.insert).mockReturnValue(mockInsertChain as any);
 
+      mockSelectOnce([]);
+      mockSelectOnce([]);
+
       // Mock mail sending success
       vi.mocked(sendInvitationEmail).mockResolvedValueOnce(true);
 
@@ -478,10 +522,10 @@ describe('Organization Lifecycle', () => {
       } as any);
 
       // Mock membership findMany to return empty array (not a member)
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       // Mock no existing invitation
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
+      mockSelectOnce([]);
 
       // Mock insert chain for new invitation - capture the token from values
       const newInvDate = new Date();
@@ -504,6 +548,9 @@ describe('Organization Lifecycle', () => {
         }),
       };
       vi.mocked(db.insert).mockReturnValue(mockInsertChain as any);
+
+      mockSelectOnce([]);
+      mockSelectOnce([]);
 
       // Mock mail sending failure
       vi.mocked(sendInvitationEmail).mockResolvedValueOnce(false);
@@ -535,13 +582,13 @@ describe('Organization Lifecycle', () => {
       } as any);
 
       // Mock membership findMany to return empty array (not a member)
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       // Mock no existing invitation
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
+      mockSelectOnce([]);
 
       // Mock user query to get inviter name
-      vi.mocked(db.query.user.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: userId,
         name: inviterName,
         email: 'inviter@example.com',
@@ -550,7 +597,7 @@ describe('Organization Lifecycle', () => {
         twoFactorEnabled: false,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as any);
+      }]);
 
       // Mock insert chain for new invitation
       const newInvDate = new Date();
@@ -575,13 +622,13 @@ describe('Organization Lifecycle', () => {
       vi.mocked(sendInvitationEmail).mockResolvedValueOnce(true);
 
       // Mock organization query to get organization name
-      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: organizationId,
         name: organizationName,
         slug: 'test-org',
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as any);
+      }]);
 
       const result = await createInvitation({
         headers,
@@ -607,10 +654,13 @@ describe('Organization Lifecycle', () => {
       } as any);
 
       // Mock membership findMany to return empty array (not a member)
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       // Mock no existing invitation
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
+      mockSelectOnce([]);
+
+      mockSelectOnce([]);
+      mockSelectOnce([]);
 
       const now = Date.now();
       const expectedExpiry = new Date(now + 14 * 24 * 60 * 60 * 1000);
@@ -661,10 +711,13 @@ describe('Organization Lifecycle', () => {
       } as any);
 
       // Mock membership findMany to return empty array (not a member)
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       // Mock no existing invitation
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
+      mockSelectOnce([]);
+
+      mockSelectOnce([]);
+      mockSelectOnce([]);
 
       // Capture the inserted invitation
       let capturedToken: string | undefined;
@@ -711,7 +764,7 @@ describe('Organization Lifecycle', () => {
       const now = new Date();
       const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000); // 5 days from now
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -722,15 +775,15 @@ describe('Organization Lifecycle', () => {
         inviterId: userId,
         createdAt: now,
         updatedAt: now,
-      } as any);
+      }]);
 
-      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: organizationId,
         name: organizationName,
         slug: 'test-org',
         createdAt: now,
         updatedAt: now,
-      } as any);
+      }]);
 
       const result = await validateInvitationToken(token);
 
@@ -745,7 +798,7 @@ describe('Organization Lifecycle', () => {
     });
 
     it('存在しないトークンの場合 not-found を返すこと', async () => {
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
+      mockSelectOnce([]);
 
       const result = await validateInvitationToken(token);
 
@@ -758,7 +811,7 @@ describe('Organization Lifecycle', () => {
       const now = new Date();
       const pastDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000); // 1 day in the past
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -769,7 +822,7 @@ describe('Organization Lifecycle', () => {
         inviterId: userId,
         createdAt: new Date(pastDate.getTime() - 15 * 24 * 60 * 60 * 1000),
         updatedAt: pastDate,
-      } as any);
+      }]);
 
       const result = await validateInvitationToken(token);
 
@@ -782,7 +835,7 @@ describe('Organization Lifecycle', () => {
       const now = new Date();
       const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -793,7 +846,7 @@ describe('Organization Lifecycle', () => {
         inviterId: userId,
         createdAt: now,
         updatedAt: now,
-      } as any);
+      }]);
 
       const result = await validateInvitationToken(token);
 
@@ -806,7 +859,7 @@ describe('Organization Lifecycle', () => {
       const now = new Date();
       const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -817,7 +870,7 @@ describe('Organization Lifecycle', () => {
         inviterId: userId,
         createdAt: now,
         updatedAt: now,
-      } as any);
+      }]);
 
       const result = await validateInvitationToken(token);
 
@@ -830,7 +883,7 @@ describe('Organization Lifecycle', () => {
       const now = new Date();
       const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -841,7 +894,7 @@ describe('Organization Lifecycle', () => {
         inviterId: userId,
         createdAt: now,
         updatedAt: now,
-      } as any);
+      }]);
 
       const result = await validateInvitationToken(token);
 
@@ -879,7 +932,7 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(null as any);
+      mockSelectOnce([]);
 
       const result = await respondToInvitation({
         headers,
@@ -900,7 +953,7 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -911,7 +964,7 @@ describe('Organization Lifecycle', () => {
         inviterId,
         createdAt: new Date(pastDate.getTime() - 15 * 24 * 60 * 60 * 1000),
         updatedAt: pastDate,
-      } as any);
+      }]);
 
       const result = await respondToInvitation({
         headers,
@@ -932,7 +985,7 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -943,7 +996,7 @@ describe('Organization Lifecycle', () => {
         inviterId,
         createdAt: now,
         updatedAt: now,
-      } as any);
+      }]);
 
       const result = await respondToInvitation({
         headers,
@@ -964,7 +1017,7 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -975,7 +1028,7 @@ describe('Organization Lifecycle', () => {
         inviterId,
         createdAt: now,
         updatedAt: now,
-      } as any);
+      }]);
 
       const result = await respondToInvitation({
         headers,
@@ -996,7 +1049,7 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -1007,15 +1060,7 @@ describe('Organization Lifecycle', () => {
         inviterId,
         createdAt: now,
         updatedAt: now,
-      } as any);
-
-      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
-        id: organizationId,
-        name: organizationName,
-        slug: 'test-org',
-        createdAt: now,
-        updatedAt: now,
-      } as any);
+      }]);
 
       const result = await respondToInvitation({
         headers,
@@ -1037,7 +1082,7 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -1048,15 +1093,7 @@ describe('Organization Lifecycle', () => {
         inviterId,
         createdAt: now,
         updatedAt: now,
-      } as any);
-
-      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
-        id: organizationId,
-        name: organizationName,
-        slug: 'test-org',
-        createdAt: now,
-        updatedAt: now,
-      } as any);
+      }]);
 
       const mockInsert = vi.fn().mockReturnValue({
         values: vi.fn().mockResolvedValue([{ id: 'membership-id-new' }]),
@@ -1077,11 +1114,18 @@ describe('Organization Lifecycle', () => {
 
       vi.mocked(db.transaction).mockImplementation(async (fn) => fn(mockTx as any));
 
-      vi.mocked(db.query.user.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: inviterId,
         email: inviterEmail,
         name: 'Inviter Name',
-      } as any);
+      }]);
+      mockSelectOnce([{
+        id: organizationId,
+        name: organizationName,
+        slug: 'test-org',
+        createdAt: now,
+        updatedAt: now,
+      }]);
 
       vi.mocked(sendAcceptanceNotificationEmail).mockResolvedValueOnce(true);
 
@@ -1106,7 +1150,7 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -1117,23 +1161,9 @@ describe('Organization Lifecycle', () => {
         inviterId,
         createdAt: now,
         updatedAt: now,
-      } as any);
+      }]);
 
-      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
-        id: organizationId,
-        name: organizationName,
-        slug: 'test-org',
-        createdAt: now,
-        updatedAt: now,
-      } as any);
-
-      const mockUpdateSet = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
-      });
-
-      vi.mocked(db.update).mockReturnValue({
-        set: mockUpdateSet,
-      } as any);
+      mockUpdateOnce([]);
 
       const result = await respondToInvitation({
         headers,
@@ -1156,7 +1186,7 @@ describe('Organization Lifecycle', () => {
         session: { id: 'sess-1' },
       } as any);
 
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: invitationId,
         organizationId,
         email: inviteeEmail,
@@ -1167,15 +1197,7 @@ describe('Organization Lifecycle', () => {
         inviterId,
         createdAt: now,
         updatedAt: now,
-      } as any);
-
-      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
-        id: organizationId,
-        name: organizationName,
-        slug: 'test-org',
-        createdAt: now,
-        updatedAt: now,
-      } as any);
+      }]);
 
       const mockInsert = vi.fn().mockReturnValue({
         values: vi.fn().mockResolvedValue([{ id: 'membership-id-new' }]),
@@ -1196,11 +1218,18 @@ describe('Organization Lifecycle', () => {
 
       vi.mocked(db.transaction).mockImplementation(async (fn) => fn(mockTx as any));
 
-      vi.mocked(db.query.user.findFirst).mockResolvedValueOnce({
+      mockSelectOnce([{
         id: inviterId,
         email: inviterEmail,
         name: 'Inviter Name',
-      } as any);
+      }]);
+      mockSelectOnce([{
+        id: organizationId,
+        name: organizationName,
+        slug: 'test-org',
+        createdAt: now,
+        updatedAt: now,
+      }]);
 
       // メール送信失敗
       vi.mocked(sendAcceptanceNotificationEmail).mockResolvedValueOnce(false);
@@ -1231,7 +1260,7 @@ describe('Organization Lifecycle', () => {
       const now = new Date();
       const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
 
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([
+      mockSelectOnce([
         {
           id: invitationId,
           organizationId,
@@ -1267,7 +1296,7 @@ describe('Organization Lifecycle', () => {
 
       await processPendingInvitationsForUser(userId, email);
 
-      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.select).toHaveBeenCalled();
       expect(db.transaction).toHaveBeenCalled();
       expect(mockInsert).toHaveBeenCalled();
       expect(mockUpdate).toHaveBeenCalled();
@@ -1277,7 +1306,7 @@ describe('Organization Lifecycle', () => {
       const now = new Date();
       const pastDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000); // 1日前
 
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([
+      mockSelectOnce([
         {
           id: invitationId,
           organizationId,
@@ -1294,46 +1323,46 @@ describe('Organization Lifecycle', () => {
 
       await processPendingInvitationsForUser(userId, email);
 
-      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.select).toHaveBeenCalled();
       expect(db.transaction).not.toHaveBeenCalled();
     });
 
     it('キャンセル済み招待がある場合、membership を作成しないこと', async () => {
       // When querying for pending invitations, canceled invitations won't be returned
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       await processPendingInvitationsForUser(userId, email);
 
-      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.select).toHaveBeenCalled();
       expect(db.transaction).not.toHaveBeenCalled();
     });
 
     it('すでに受け入れ済み招待がある場合、membership を作成しないこと', async () => {
       // When querying for pending invitations, accepted invitations won't be returned
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       await processPendingInvitationsForUser(userId, email);
 
-      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.select).toHaveBeenCalled();
       expect(db.transaction).not.toHaveBeenCalled();
     });
 
     it('拒否済み招待がある場合、membership を作成しないこと', async () => {
       // When querying for pending invitations, rejected invitations won't be returned
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       await processPendingInvitationsForUser(userId, email);
 
-      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.select).toHaveBeenCalled();
       expect(db.transaction).not.toHaveBeenCalled();
     });
 
     it('招待が見つからない場合、エラーを出さずに成功すること', async () => {
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
+      mockSelectOnce([]);
 
       await processPendingInvitationsForUser(userId, email);
 
-      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.select).toHaveBeenCalled();
       expect(db.transaction).not.toHaveBeenCalled();
     });
 
@@ -1343,7 +1372,7 @@ describe('Organization Lifecycle', () => {
       const organizationId2 = 'org-456';
       const invitationId2 = 'inv-456';
 
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([
+      mockSelectOnce([
         {
           id: invitationId,
           organizationId,
@@ -1391,7 +1420,7 @@ describe('Organization Lifecycle', () => {
 
       await processPendingInvitationsForUser(userId, email);
 
-      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.select).toHaveBeenCalled();
       // Should be called twice (once for each valid invitation)
       expect(db.transaction).toHaveBeenCalledTimes(2);
     });
@@ -1434,7 +1463,7 @@ describe('Organization Lifecycle', () => {
         },
       ];
 
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce(mockInvitations as any);
+      mockSelectOnce(mockInvitations as any);
 
       const result = await getInvitations({
         headers: headersWithOrigin,
@@ -1518,7 +1547,7 @@ describe('Organization Lifecycle', () => {
         },
       ];
 
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce(mockInvitations as any);
+      mockSelectOnce(mockInvitations as any);
 
       const result = await getInvitations({
         headers: headersWithOrigin,
@@ -1613,7 +1642,7 @@ describe('Organization Lifecycle', () => {
         },
       ];
 
-      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce(mockInvitations as any);
+      mockSelectOnce(mockInvitations as any);
 
       const result = await getInvitations({
         headers: headersWithOrigin,
@@ -1780,10 +1809,7 @@ describe('Organization Lifecycle', () => {
         user: { id: userId },
       } as any);
 
-      const mockWhere = vi.fn().mockRejectedValue(new Error('Database error'));
-      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
-      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
-      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
+      mockSelectRejectOnce(new Error('Database error'));
 
       const result = await getUserOrganizations({
         headers,
@@ -2030,10 +2056,7 @@ describe('Organization Lifecycle', () => {
         role: 'member',
       } as any);
 
-      const mockWhere = vi.fn().mockRejectedValue(new Error('Database error'));
-      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
-      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
-      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
+      mockSelectRejectOnce(new Error('Database error'));
 
       const result = await getOrganizationMembers({
         headers,

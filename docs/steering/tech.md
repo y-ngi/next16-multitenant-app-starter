@@ -42,5 +42,12 @@ pnpm test:run
 - テストは原則として対象実装に隣接して配置し、共通セットアップは `tests/` に置く。
 - 実装前に失敗するテストを作成し、最小限の実装で通過させる TDD を標準とする。
 
+## DB マイグレーション運用ルール
+
+- **クエリ方式**: Drizzle の Relational Queries (`db.query.<table>.findFirst`/`findMany`) は環境によって `LEFT JOIN LATERAL` や `json_build_array` を含む SQL を生成し、実行時エラーの原因になりやすいため使用しない。必ず `db.select().from().where()` / `.innerJoin()` / `db.insert()` / `db.update()` / `db.transaction()` など、明示的な標準クエリビルダーを使用すること。
+- **既存マイグレーションファイルの直接編集禁止**: `drizzle/*.sql` に一度出力されたマイグレーションファイルは、既に適用済みの開発環境が存在する前提で扱い、直接編集しない。スキーマを変更する場合は必ず `pnpm db:generate` で新しいマイグレーションファイルを追加すること。過去に適用済みの migration ファイルを書き換えると、その migration をすでに適用済みの DB では変更が反映されず、`column "xxx" does not exist` のような不整合エラーの原因になる。
+- **開発環境のスキーマ不整合が疑われる場合**: `pnpm db:push` でローカル DB のスキーマを `src/db/schema.ts` の内容へ直接同期できる（開発用途限定）。
+
 ---
 _2026-09-12 更新: 組織・ロールの業務ロジックを Better Auth organization プラグインから分離し、独自の組織基盤と `owner`／`member` の2ロールを採用する方針へ更新。_
+_2026-09-13 更新: Drizzle Relational Queries の実行時エラーを受け、標準クエリビルダーへの統一と、既存マイグレーションファイルの直接編集禁止ルールを追加。_
