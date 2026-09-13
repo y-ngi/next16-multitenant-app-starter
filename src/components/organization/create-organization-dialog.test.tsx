@@ -41,7 +41,8 @@ describe('CreateOrganizationDialog', () => {
     fireEvent.click(screen.getByText('組織を作成'));
 
     expect(screen.getByLabelText('組織名')).toBeInTheDocument();
-    expect(screen.getByLabelText('スラッグ')).toBeInTheDocument();
+    expect(screen.getByLabelText('組織タグ（英数字）')).toBeInTheDocument();
+    expect(screen.getByLabelText('組織タグの説明')).toBeInTheDocument();
     expect(screen.getByText('キャンセル')).toBeInTheDocument();
     expect(screen.getByText('作成')).toBeInTheDocument();
   });
@@ -52,7 +53,7 @@ describe('CreateOrganizationDialog', () => {
     fireEvent.click(screen.getByText('組織を作成'));
 
     const nameInput = screen.getByLabelText('組織名') as HTMLInputElement;
-    const slugInput = screen.getByLabelText('スラッグ') as HTMLInputElement;
+    const slugInput = screen.getByLabelText('組織タグ（英数字）') as HTMLInputElement;
 
     fireEvent.change(nameInput, { target: { value: 'Test Org' } });
     fireEvent.change(slugInput, { target: { value: 'test-org' } });
@@ -77,7 +78,7 @@ describe('CreateOrganizationDialog', () => {
     fireEvent.click(screen.getByText('組織を作成'));
 
     const nameInput = screen.getByLabelText('組織名');
-    const slugInput = screen.getByLabelText('スラッグ');
+    const slugInput = screen.getByLabelText('組織タグ（英数字）');
 
     fireEvent.change(nameInput, { target: { value: 'Test Org' } });
     fireEvent.change(slugInput, { target: { value: 'test-org' } });
@@ -102,7 +103,7 @@ describe('CreateOrganizationDialog', () => {
     fireEvent.click(screen.getByText('組織を作成'));
 
     const nameInput = screen.getByLabelText('組織名');
-    const slugInput = screen.getByLabelText('スラッグ');
+    const slugInput = screen.getByLabelText('組織タグ（英数字）');
 
     fireEvent.change(nameInput, { target: { value: 'Test Org' } });
     fireEvent.change(slugInput, { target: { value: 'test-org' } });

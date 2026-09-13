@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { HelpCircle } from 'lucide-react';
 import { createOrganizationAction } from '@/app/actions/organization';
 import { toast } from 'sonner';
 
@@ -84,7 +86,23 @@ export function CreateOrganizationDialog({ onSuccess }: CreateOrganizationDialog
             </div>
 
             <div>
-              <Label htmlFor="slug">スラッグ</Label>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Label htmlFor="slug" className="mb-0">組織タグ（英数字）</Label>
+                <TooltipProvider delay={0}>
+                  <Tooltip>
+                    <TooltipTrigger
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground inline-flex items-center justify-center rounded-full focus:outline-none cursor-pointer"
+                      aria-label="組織タグの説明"
+                    >
+                      <HelpCircle className="h-4 w-4" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs p-2 text-xs">
+                      組織タグはURLや組織の識別子として使用される一意の半角英数字・ハイフンです（例: acme-corp）。
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <Input
                 id="slug"
                 name="slug"

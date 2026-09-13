@@ -1,3 +1,4 @@
+import { relations } from 'drizzle-orm';
 import { boolean, index, integer, pgEnum, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core';
 
 // ==========================================
@@ -143,3 +144,39 @@ export const invitation = pgTable(
     index('invitation_token_idx').on(table.token),
   ],
 );
+
+// ==========================================
+// リレーション定義 (Drizzle Relations)
+// ==========================================
+
+export const userRelations = relations(user, ({ many }) => ({
+  memberships: many(membership),
+  invitationsSent: many(invitation),
+}));
+
+export const organizationRelations = relations(organization, ({ many }) => ({
+  memberships: many(membership),
+  invitations: many(invitation),
+}));
+
+export const membershipRelations = relations(membership, ({ one }) => ({
+  user: one(user, {
+    fields: [membership.userId],
+    references: [user.id],
+  }),
+  organization: one(organization, {
+    fields: [membership.organizationId],
+    references: [organization.id],
+  }),
+}));
+
+export const invitationRelations = relations(invitation, ({ one }) => ({
+  organization: one(organization, {
+    fields: [invitation.organizationId],
+    references: [organization.id],
+  }),
+  inviter: one(user, {
+    fields: [invitation.inviterId],
+    references: [user.id],
+  }),
+}));
