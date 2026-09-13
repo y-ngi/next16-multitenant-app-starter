@@ -23,6 +23,7 @@ vi.mock('@/lib/auth', () => ({
 vi.mock('@/db', () => ({
   db: {
     insert: vi.fn(),
+    select: vi.fn(),
     query: {
       organization: {
         findFirst: vi.fn(),
@@ -232,6 +233,30 @@ describe('Organization Lifecycle', () => {
 
       expect(result.ok).toBe(true);
       expect(result.organization?.id).toBe(newOrgId);
+    });
+
+    it('slug が重複している場合、分かりやすいエラーを返すこと', async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: { id: userId },
+        session: { id: 'sess-1' },
+      } as any);
+
+      vi.mocked(db.query.organization.findFirst).mockResolvedValueOnce({
+        id: 'existing-org-id',
+        name: 'Existing Org',
+        slug: 'test-org',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+
+      const result = await createOrganization({
+        headers,
+        name: 'Test Organization',
+        slug: 'test-org',
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('既に使用されています');
     });
   });
 
@@ -1634,44 +1659,30 @@ describe('Organization Lifecycle', () => {
         user: { id: userId },
       } as any);
 
-      // Mock membership query
       const now = new Date();
       const orgId1 = 'org-1';
       const orgId2 = 'org-2';
-      const mockMemberships = [
+      const mockRows = [
         {
-          id: 'mem-1',
-          organizationId: orgId1,
-          userId,
+          id: orgId1,
+          name: 'Test Org 1',
+          slug: 'test-org-1',
           role: 'owner',
-          displayName: null,
-          createdAt: now,
-          organization: {
-            id: orgId1,
-            name: 'Test Org 1',
-            slug: 'test-org-1',
-            createdAt: now,
-            updatedAt: now,
-          },
+          joinedAt: now,
         },
         {
-          id: 'mem-2',
-          organizationId: orgId2,
-          userId,
+          id: orgId2,
+          name: 'Test Org 2',
+          slug: 'test-org-2',
           role: 'member',
-          displayName: null,
-          createdAt: new Date(now.getTime() + 1000),
-          organization: {
-            id: orgId2,
-            name: 'Test Org 2',
-            slug: 'test-org-2',
-            createdAt: now,
-            updatedAt: now,
-          },
+          joinedAt: new Date(now.getTime() + 1000),
         },
       ];
 
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMemberships as any);
+      const mockWhere = vi.fn().mockResolvedValue(mockRows);
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getUserOrganizations({
         headers,
@@ -1702,8 +1713,10 @@ describe('Organization Lifecycle', () => {
         user: { id: userId },
       } as any);
 
-      // Mock membership query - no memberships
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+      const mockWhere = vi.fn().mockResolvedValue([]);
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getUserOrganizations({
         headers,
@@ -1720,57 +1733,35 @@ describe('Organization Lifecycle', () => {
         user: { id: userId },
       } as any);
 
-      // Mock membership query with multiple orgs
       const now = new Date();
-      const mockMemberships = [
+      const mockRows = [
         {
-          id: 'mem-1',
-          organizationId: 'org-1',
-          userId,
+          id: 'org-1',
+          name: 'First Org',
+          slug: 'first-org',
           role: 'owner',
-          displayName: null,
-          createdAt: now,
-          organization: {
-            id: 'org-1',
-            name: 'First Org',
-            slug: 'first-org',
-            createdAt: now,
-            updatedAt: now,
-          },
+          joinedAt: now,
         },
         {
-          id: 'mem-2',
-          organizationId: 'org-2',
-          userId,
+          id: 'org-2',
+          name: 'Second Org',
+          slug: 'second-org',
           role: 'member',
-          displayName: null,
-          createdAt: new Date(now.getTime() + 1000),
-          organization: {
-            id: 'org-2',
-            name: 'Second Org',
-            slug: 'second-org',
-            createdAt: now,
-            updatedAt: now,
-          },
+          joinedAt: new Date(now.getTime() + 1000),
         },
         {
-          id: 'mem-3',
-          organizationId: 'org-3',
-          userId,
+          id: 'org-3',
+          name: 'Third Org',
+          slug: 'third-org',
           role: 'member',
-          displayName: null,
-          createdAt: new Date(now.getTime() + 2000),
-          organization: {
-            id: 'org-3',
-            name: 'Third Org',
-            slug: 'third-org',
-            createdAt: now,
-            updatedAt: now,
-          },
+          joinedAt: new Date(now.getTime() + 2000),
         },
       ];
 
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMemberships as any);
+      const mockWhere = vi.fn().mockResolvedValue(mockRows);
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getUserOrganizations({
         headers,
@@ -1789,8 +1780,10 @@ describe('Organization Lifecycle', () => {
         user: { id: userId },
       } as any);
 
-      // Mock membership query - throws error
-      vi.mocked(db.query.membership.findMany).mockRejectedValueOnce(new Error('Database error'));
+      const mockWhere = vi.fn().mockRejectedValue(new Error('Database error'));
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getUserOrganizations({
         headers,
@@ -1855,48 +1848,32 @@ describe('Organization Lifecycle', () => {
         role: 'member',
       } as any);
 
-      // Mock membership query for all members
       const now = new Date();
-      const mockMembers = [
+      const mockRows = [
         {
           id: 'mem-1',
-          organizationId,
           userId: 'user-1',
+          userName: 'Alice Johnson',
+          userEmail: 'alice@example.com',
           displayName: 'Alice',
           role: 'owner',
-          createdAt: now,
-          user: {
-            id: 'user-1',
-            name: 'Alice Johnson',
-            email: 'alice@example.com',
-            emailVerified: true,
-            twoFactorEnabled: false,
-            createdAt: now,
-            updatedAt: now,
-            image: null,
-          },
+          joinedAt: now,
         },
         {
           id: 'mem-2',
-          organizationId,
           userId: 'user-2',
+          userName: 'Bob Smith',
+          userEmail: 'bob@example.com',
           displayName: 'Bob',
           role: 'member',
-          createdAt: new Date(now.getTime() + 1000),
-          user: {
-            id: 'user-2',
-            name: 'Bob Smith',
-            email: 'bob@example.com',
-            emailVerified: true,
-            twoFactorEnabled: false,
-            createdAt: now,
-            updatedAt: now,
-            image: null,
-          },
+          joinedAt: new Date(now.getTime() + 1000),
         },
       ];
 
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMembers as any);
+      const mockWhere = vi.fn().mockResolvedValue(mockRows);
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getOrganizationMembers({
         headers,
@@ -1935,8 +1912,10 @@ describe('Organization Lifecycle', () => {
         role: 'member',
       } as any);
 
-      // Mock membership query - no members
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+      const mockWhere = vi.fn().mockResolvedValue([]);
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getOrganizationMembers({
         headers,
@@ -1957,30 +1936,23 @@ describe('Organization Lifecycle', () => {
         role: 'member',
       } as any);
 
-      // Mock membership query with null displayName
       const now = new Date();
-      const mockMembers = [
+      const mockRows = [
         {
           id: 'mem-1',
-          organizationId,
           userId: 'user-1',
+          userName: 'Charlie Brown',
+          userEmail: 'charlie@example.com',
           displayName: null,
           role: 'member',
-          createdAt: now,
-          user: {
-            id: 'user-1',
-            name: 'Charlie Brown',
-            email: 'charlie@example.com',
-            emailVerified: true,
-            twoFactorEnabled: false,
-            createdAt: now,
-            updatedAt: now,
-            image: null,
-          },
+          joinedAt: now,
         },
       ];
 
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMembers as any);
+      const mockWhere = vi.fn().mockResolvedValue(mockRows);
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getOrganizationMembers({
         headers,
@@ -2001,66 +1973,41 @@ describe('Organization Lifecycle', () => {
         role: 'member',
       } as any);
 
-      // Mock membership query with multiple members
       const now = new Date();
-      const mockMembers = [
+      const mockRows = [
         {
           id: 'mem-1',
-          organizationId,
           userId: 'user-1',
+          userName: 'Alice',
+          userEmail: 'alice@example.com',
           displayName: 'Alice',
           role: 'owner',
-          createdAt: now,
-          user: {
-            id: 'user-1',
-            name: 'Alice',
-            email: 'alice@example.com',
-            emailVerified: true,
-            twoFactorEnabled: false,
-            createdAt: now,
-            updatedAt: now,
-            image: null,
-          },
+          joinedAt: now,
         },
         {
           id: 'mem-2',
-          organizationId,
           userId: 'user-2',
+          userName: 'Bob',
+          userEmail: 'bob@example.com',
           displayName: 'Bob',
           role: 'member',
-          createdAt: new Date(now.getTime() + 1000),
-          user: {
-            id: 'user-2',
-            name: 'Bob',
-            email: 'bob@example.com',
-            emailVerified: true,
-            twoFactorEnabled: false,
-            createdAt: now,
-            updatedAt: now,
-            image: null,
-          },
+          joinedAt: new Date(now.getTime() + 1000),
         },
         {
           id: 'mem-3',
-          organizationId,
           userId: 'user-3',
+          userName: 'Charlie',
+          userEmail: 'charlie@example.com',
           displayName: 'Charlie',
           role: 'member',
-          createdAt: new Date(now.getTime() + 2000),
-          user: {
-            id: 'user-3',
-            name: 'Charlie',
-            email: 'charlie@example.com',
-            emailVerified: true,
-            twoFactorEnabled: false,
-            createdAt: now,
-            updatedAt: now,
-            image: null,
-          },
+          joinedAt: new Date(now.getTime() + 2000),
         },
       ];
 
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMembers as any);
+      const mockWhere = vi.fn().mockResolvedValue(mockRows);
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getOrganizationMembers({
         headers,
@@ -2083,8 +2030,10 @@ describe('Organization Lifecycle', () => {
         role: 'member',
       } as any);
 
-      // Mock membership query - throws error
-      vi.mocked(db.query.membership.findMany).mockRejectedValueOnce(new Error('Database error'));
+      const mockWhere = vi.fn().mockRejectedValue(new Error('Database error'));
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getOrganizationMembers({
         headers,
@@ -2105,30 +2054,23 @@ describe('Organization Lifecycle', () => {
         role: 'owner',
       } as any);
 
-      // Mock membership query
       const now = new Date();
-      const mockMembers = [
+      const mockRows = [
         {
           id: 'mem-1',
-          organizationId,
           userId: 'user-1',
+          userName: 'Owner',
+          userEmail: 'owner@example.com',
           displayName: 'Owner User',
           role: 'owner',
-          createdAt: now,
-          user: {
-            id: 'user-1',
-            name: 'Owner',
-            email: 'owner@example.com',
-            emailVerified: true,
-            twoFactorEnabled: false,
-            createdAt: now,
-            updatedAt: now,
-            image: null,
-          },
+          joinedAt: now,
         },
       ];
 
-      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMembers as any);
+      const mockWhere = vi.fn().mockResolvedValue(mockRows);
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+      vi.mocked(db.select).mockReturnValue({ from: mockFrom } as any);
 
       const result = await getOrganizationMembers({
         headers,

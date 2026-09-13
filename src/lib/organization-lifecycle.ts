@@ -58,7 +58,20 @@ export async function createOrganization(
   }
 
   try {
-    // 3. Create organization and membership within a transaction
+    // 3. Check slug uniqueness
+    const normalizedSlug = slug.trim().toLowerCase();
+    const existingOrg = await db.query.organization.findFirst({
+      where: eq(organization.slug, normalizedSlug),
+    });
+
+    if (existingOrg) {
+      return {
+        ok: false,
+        error: '指定された組織タグは既に使用されています。別のタグを指定してください。',
+      };
+    }
+
+    // 4. Create organization and membership within a transaction
     const result = await db.transaction(async (tx) => {
       const now = new Date();
       const orgId = randomUUID();
@@ -69,7 +82,7 @@ export async function createOrganization(
         .values({
           id: orgId,
           name: name.trim(),
-          slug: slug.trim().toLowerCase(),
+          slug: normalizedSlug,
           createdAt: now,
           updatedAt: now,
         })
@@ -110,6 +123,12 @@ export async function createOrganization(
       },
     };
   } catch (error) {
+    if (error instanceof Error && error.message.includes('organization_slug_unique')) {
+      return {
+        ok: false,
+        error: '指定された組織タグは既に使用されています。別のタグを指定してください。',
+      };
+    }
     const errorMessage = error instanceof Error ? error.message : 'Failed to create organization';
     return {
       ok: false,
@@ -154,22 +173,27 @@ export async function getUserOrganizations(
   const userId = session.user.id;
 
   try {
-    // 2. Fetch organizations for the user
-    const orgs = await db.query.membership.findMany({
-      where: eq(membership.userId, userId),
-      with: {
-        organization: true,
-      },
-    });
+    // 2. Fetch organizations for the user via innerJoin
+    const rows = await db
+      .select({
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
+        role: membership.role,
+        joinedAt: membership.createdAt,
+      })
+      .from(membership)
+      .innerJoin(organization, eq(membership.organizationId, organization.id))
+      .where(eq(membership.userId, userId));
 
     return {
       ok: true,
-      organizations: orgs.map((m) => ({
-        id: (m.organization as any)?.id,
-        name: (m.organization as any)?.name,
-        slug: (m.organization as any)?.slug,
-        role: m.role as OrganizationRole,
-        joinedAt: m.createdAt,
+      organizations: rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        role: r.role as OrganizationRole,
+        joinedAt: r.joinedAt,
       })),
     };
   } catch (error) {
@@ -233,24 +257,31 @@ export async function getOrganizationMembers(
       };
     }
 
-    // 2. Fetch all members
-    const members = await db.query.membership.findMany({
-      where: eq(membership.organizationId, organizationId),
-      with: {
-        user: true,
-      },
-    });
+    // 2. Fetch all members via innerJoin
+    const rows = await db
+      .select({
+        id: membership.id,
+        userId: membership.userId,
+        userName: user.name,
+        userEmail: user.email,
+        displayName: membership.displayName,
+        role: membership.role,
+        joinedAt: membership.createdAt,
+      })
+      .from(membership)
+      .innerJoin(user, eq(membership.userId, user.id))
+      .where(eq(membership.organizationId, organizationId));
 
     return {
       ok: true,
-      members: members.map((m) => ({
-        id: m.id,
-        userId: m.userId,
-        userName: (m.user as any)?.name,
-        userEmail: (m.user as any)?.email,
-        displayName: m.displayName,
-        role: m.role as OrganizationRole,
-        joinedAt: m.createdAt,
+      members: rows.map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        userName: r.userName,
+        userEmail: r.userEmail,
+        displayName: r.displayName,
+        role: r.role as OrganizationRole,
+        joinedAt: r.joinedAt,
       })),
     };
   } catch (error) {

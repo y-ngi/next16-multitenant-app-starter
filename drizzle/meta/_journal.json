@@ -8,6 +8,13 @@
       "when": 1789235073911,
       "tag": "0000_rare_joseph",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789302009171,
+      "tag": "0001_absurd_nextwave",
+      "breakpoints": true
     }
   ]
 }
