@@ -4,7 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { organization, membership, user, invitation, type OrganizationRole, type InvitationStatus } from '@/db/schema';
 import { randomUUID } from 'crypto';
 import { requireOrganizationAccess } from '@/lib/organization-authz';
-import { sendInvitationEmail } from '@/lib/invitation-mailer';
+import { sendInvitationEmail, sendAcceptanceNotificationEmail } from '@/lib/invitation-mailer';
 
 export interface CreateOrganizationInput {
   readonly headers: Headers;
@@ -295,6 +295,12 @@ export interface ValidateTokenResult {
   };
 }
 
+export interface RespondToInvitationInput {
+  readonly headers: Headers;
+  readonly token: string;
+  readonly accept: boolean;
+}
+
 /**
  * Server-only function to validate an invitation token.
  * Returns validation result with details about the invitation status.
@@ -498,6 +504,154 @@ export async function createInvitation(
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to create invitation';
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+}
+
+/**
+ * Server-only function to respond to an invitation (accept or reject).
+ * Only the invited user (matching email) can accept or reject the invitation.
+ * On acceptance: creates membership and sends notification email to inviter.
+ * On rejection: does not create membership, just updates invitation status.
+ * If email notification fails on acceptance, does not fail the operation (logs error).
+ */
+export async function respondToInvitation(
+  input: RespondToInvitationInput
+): Promise<{
+  readonly ok: boolean;
+  readonly error?: string;
+}> {
+  const { headers, token, accept } = input;
+
+  try {
+    // 1. Validate authentication
+    const session = await auth.api.getSession({ headers });
+    if (!session || !session.user) {
+      return {
+        ok: false,
+        error: 'Unauthenticated user cannot respond to invitation',
+      };
+    }
+
+    const userId = session.user.id;
+    const userEmail = session.user.email;
+
+    // 2. Find invitation by token
+    const inv = await db.query.invitation.findFirst({
+      where: eq(invitation.token, token),
+    });
+
+    if (!inv) {
+      return {
+        ok: false,
+        error: 'Invitation not found',
+      };
+    }
+
+    // 3. Validate invitation status and expiration
+    if (inv.status === 'canceled') {
+      return {
+        ok: false,
+        error: 'Invitation has been canceled',
+      };
+    }
+
+    if (inv.status === 'accepted' || inv.status === 'rejected') {
+      return {
+        ok: false,
+        error: 'Invitation has already been used',
+      };
+    }
+
+    // 4. Check expiration (expiresAt < now means expired)
+    const now = new Date();
+    if (inv.expiresAt < now) {
+      return {
+        ok: false,
+        error: 'Invitation has expired',
+      };
+    }
+
+    // 5. Verify email matches
+    if (userEmail !== inv.email) {
+      return {
+        ok: false,
+        error: '他のユーザへの招待ですので、招待されたメールアドレスで再ログインしてください。',
+      };
+    }
+
+    // 6. Handle acceptance
+    if (accept) {
+      // Create membership and update invitation within a transaction
+      await db.transaction(async (tx) => {
+        const membershipId = randomUUID();
+        const createdAt = new Date();
+
+        // Create membership with role from invitation
+        await tx
+          .insert(membership)
+          .values({
+            id: membershipId,
+            organizationId: inv.organizationId,
+            userId,
+            role: inv.role as OrganizationRole,
+            createdAt,
+          });
+
+        // Update invitation status to accepted
+        await tx
+          .update(invitation)
+          .set({
+            status: 'accepted' as InvitationStatus,
+            updatedAt: new Date(),
+          })
+          .where(eq(invitation.id, inv.id));
+      });
+
+      // 7. Get inviter info and send acceptance notification email
+      const inviterUser = await db.query.user.findFirst({
+        where: eq(user.id, inv.inviterId),
+      });
+
+      const org = await db.query.organization.findFirst({
+        where: eq(organization.id, inv.organizationId),
+      });
+
+      if (inviterUser && org) {
+        // Send notification email (do not fail if email fails)
+        await sendAcceptanceNotificationEmail({
+          toEmail: inviterUser.email,
+          organizationName: org.name,
+          newMemberName: session.user.name || 'Team Member',
+          newMemberEmail: inv.email,
+        }).catch((error) => {
+          console.error('[Acceptance Notification Email] メール送信失敗:', error);
+          // Do not throw, just log
+        });
+      }
+
+      return {
+        ok: true,
+      };
+    } else {
+      // 8. Handle rejection - just update invitation status
+      await db
+        .update(invitation)
+        .set({
+          status: 'rejected' as InvitationStatus,
+          updatedAt: new Date(),
+        })
+        .where(eq(invitation.id, inv.id));
+
+      return {
+        ok: true,
+      };
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to respond to invitation';
     return {
       ok: false,
       error: errorMessage,
