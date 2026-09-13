@@ -57,7 +57,7 @@ vi.mock('@/lib/organization-authz', () => ({
 
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
-import { organization, membership, invitation, user } from '@/db/schema';
+import { organization, membership } from '@/db/schema';
 import { sendInvitationEmail, sendAcceptanceNotificationEmail } from '@/lib/invitation-mailer';
 import { requireOrganizationAccess } from '@/lib/organization-authz';
 
@@ -125,9 +125,7 @@ describe('Organization Lifecycle', () => {
       } as any);
 
       // Mock transaction
-      let transactionCallback: ((tx: any) => Promise<any>) | undefined;
       vi.mocked(db.transaction).mockImplementation(async (callback: any) => {
-        transactionCallback = callback;
         // Create mock tx object with insert method
         const mockTx = {
           insert: vi.fn().mockReturnThis(),
@@ -375,7 +373,7 @@ describe('Organization Lifecycle', () => {
           }
           return mockUpdateChain;
         }),
-        where: vi.fn().mockImplementation((condition: any) => {
+        where: vi.fn().mockImplementation(() => {
           updateWhereCalled = true;
           return Promise.resolve(undefined);
         }),
@@ -458,7 +456,7 @@ describe('Organization Lifecycle', () => {
       vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
 
       // Mock no existing invitation
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(null);
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
 
       // Mock insert chain for new invitation - capture the token from values
       const newInvDate = new Date();
@@ -515,7 +513,7 @@ describe('Organization Lifecycle', () => {
       vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
 
       // Mock no existing invitation
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(null);
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
 
       // Mock user query to get inviter name
       vi.mocked(db.query.user.findFirst).mockResolvedValueOnce({
@@ -587,7 +585,7 @@ describe('Organization Lifecycle', () => {
       vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
 
       // Mock no existing invitation
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(null);
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
 
       const now = Date.now();
       const expectedExpiry = new Date(now + 14 * 24 * 60 * 60 * 1000);
@@ -641,7 +639,7 @@ describe('Organization Lifecycle', () => {
       vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
 
       // Mock no existing invitation
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(null);
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
 
       // Capture the inserted invitation
       let capturedToken: string | undefined;
@@ -722,7 +720,7 @@ describe('Organization Lifecycle', () => {
     });
 
     it('存在しないトークンの場合 not-found を返すこと', async () => {
-      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(null);
+      vi.mocked(db.query.invitation.findFirst).mockResolvedValueOnce(undefined);
 
       const result = await validateInvitationToken(token);
 
@@ -1203,7 +1201,6 @@ describe('Organization Lifecycle', () => {
     const organizationId = 'org-123';
     const invitationId = 'inv-123';
     const inviterId = 'inviter-id';
-    const organizationName = 'Test Organization';
 
     it('有効な保留中招待がある場合、membership を作成して招待を accepted に更新すること', async () => {
       const now = new Date();
@@ -1277,9 +1274,6 @@ describe('Organization Lifecycle', () => {
     });
 
     it('キャンセル済み招待がある場合、membership を作成しないこと', async () => {
-      const now = new Date();
-      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
-
       // When querying for pending invitations, canceled invitations won't be returned
       vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
 
@@ -1290,9 +1284,6 @@ describe('Organization Lifecycle', () => {
     });
 
     it('すでに受け入れ済み招待がある場合、membership を作成しないこと', async () => {
-      const now = new Date();
-      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
-
       // When querying for pending invitations, accepted invitations won't be returned
       vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
 
@@ -1303,9 +1294,6 @@ describe('Organization Lifecycle', () => {
     });
 
     it('拒否済み招待がある場合、membership を作成しないこと', async () => {
-      const now = new Date();
-      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
-
       // When querying for pending invitations, rejected invitations won't be returned
       vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
 

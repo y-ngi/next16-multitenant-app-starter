@@ -4,26 +4,6 @@ import { invitation, invitationStatusEnum, organization, user } from './schema';
 
 const dialect = new PgDialect();
 
-function hasUniqueConstraint(table: ReturnType<typeof getTableConfig>, columnNames: readonly string[]): boolean {
-  return table.uniqueConstraints.some(
-    (constraint) =>
-      constraint.columns.length === columnNames.length &&
-      constraint.columns.every((column, index) => column.name === columnNames[index]),
-  );
-}
-
-function hasIndexOnColumns(table: ReturnType<typeof getTableConfig>, columnNames: readonly string[]): boolean {
-  return table.indexes.some(
-    (idx) =>
-      idx.columns &&
-      idx.columns.length === columnNames.length &&
-      idx.columns.every((column, index) => {
-        const colName = typeof column === 'string' ? column : column.name;
-        return colName === columnNames[index];
-      }),
-  );
-}
-
 describe('invitation schema contract', () => {
   it('defines an invitation status enum with all required statuses', () => {
     expect(invitationStatusEnum.enumValues).toEqual(['pending', 'accepted', 'rejected', 'expired', 'canceled']);

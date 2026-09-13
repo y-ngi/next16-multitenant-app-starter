@@ -165,9 +165,9 @@ export async function getUserOrganizations(
     return {
       ok: true,
       organizations: orgs.map((m) => ({
-        id: m.organization.id,
-        name: m.organization.name,
-        slug: m.organization.slug,
+        id: (m.organization as any)?.id,
+        name: (m.organization as any)?.name,
+        slug: (m.organization as any)?.slug,
         role: m.role as OrganizationRole,
         joinedAt: m.createdAt,
       })),
@@ -246,8 +246,8 @@ export async function getOrganizationMembers(
       members: members.map((m) => ({
         id: m.id,
         userId: m.userId,
-        userName: m.user.name,
-        userEmail: m.user.email,
+        userName: (m.user as any)?.name,
+        userEmail: (m.user as any)?.email,
         displayName: m.displayName,
         role: m.role as OrganizationRole,
         joinedAt: m.createdAt,
@@ -369,7 +369,7 @@ export async function validateInvitationToken(token: string): Promise<ValidateTo
         role: inv.role as OrganizationRole,
       },
     };
-  } catch (error) {
+  } catch {
     // On error, treat as not-found
     return {
       valid: false,
@@ -417,7 +417,7 @@ export async function createInvitation(
       },
     });
 
-    const alreadyMember = existingMembers.some((m) => m.user.email === email);
+    const alreadyMember = existingMembers.some((m) => (m.user as any)?.email === email);
     if (alreadyMember) {
       return { ok: false, error: '既に組織に所属しています' };
     }
@@ -789,7 +789,7 @@ export async function getInvitations(
       try {
         const url = new URL(origin);
         baseURL = url.origin;
-      } catch (e) {
+      } catch {
         // If Origin parsing fails, use default
       }
     }

@@ -66,10 +66,9 @@ export const auth = betterAuth({
         // Process pending invitations for newly registered user (Task 4.3)
         async after(user) {
           // Fire and forget - process invitations without blocking user creation
-          processPendingInvitationsForUser(user.id, user.email).catch((error) => {
+          await processPendingInvitationsForUser(user.id, user.email).catch((error) => {
             console.error('[Auth Hook] Error processing pending invitations:', error);
           });
-          return user;
         },
       },
     },
