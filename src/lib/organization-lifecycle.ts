@@ -208,31 +208,32 @@ export async function getOrganizationMembers(
 ): Promise<GetOrganizationMembersResult> {
   const { headers, organizationId } = input;
 
-  // 1. Validate authentication
-  const session = await auth.api.getSession({ headers });
-  if (!session || !session.user) {
-    return {
-      ok: false,
-      error: 'Unauthenticated',
-    };
-  }
-
-  const userId = session.user.id;
-
   try {
-    // 2. Check if user is a member of the organization
-    const userMembership = await db.query.membership.findFirst({
-      where: and(eq(membership.organizationId, organizationId), eq(membership.userId, userId)),
+    // 1. Check authorization - user must be a member of the organization
+    const authResult = await requireOrganizationAccess({
+      headers,
+      organizationId,
+      requiredRole: 'member',
     });
 
-    if (!userMembership) {
+    if (!authResult.ok) {
+      let errorMessage = 'Unauthorized';
+      if (authResult.reason === 'unauthenticated') {
+        errorMessage = 'Unauthenticated';
+      } else if (authResult.reason === 'not-member') {
+        errorMessage = 'Not a member of this organization';
+      } else if (authResult.reason === 'organization-not-found') {
+        errorMessage = 'Organization not found';
+      } else if (authResult.reason === 'insufficient-role') {
+        errorMessage = 'Insufficient role to access this organization';
+      }
       return {
         ok: false,
-        error: 'Not a member of this organization',
+        error: errorMessage,
       };
     }
 
-    // 3. Fetch all members
+    // 2. Fetch all members
     const members = await db.query.membership.findMany({
       where: eq(membership.organizationId, organizationId),
       with: {

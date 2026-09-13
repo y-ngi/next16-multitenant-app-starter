@@ -6,6 +6,8 @@ import {
   respondToInvitation,
   processPendingInvitationsForUser,
   getInvitations,
+  getUserOrganizations,
+  getOrganizationMembers,
 } from './organization-lifecycle';
 
 // Mock auth module
@@ -1622,6 +1624,532 @@ describe('Organization Lifecycle', () => {
       expect(invitationsByEmail['rejected@example.com'].status).toBe('rejected');
       expect(invitationsByEmail['canceled@example.com'].status).toBe('canceled');
       expect(invitationsByEmail['expired@example.com'].status).toBe('expired');
+    });
+  });
+
+  describe('getUserOrganizations', () => {
+    it('未認証の場合、エラーを返すこと', async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce(null as any);
+
+      const result = await getUserOrganizations({
+        headers,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('Unauthenticated');
+      expect(result.organizations).toBeUndefined();
+    });
+
+    it('認証済みユーザーが所属組織一覧を取得できること', async () => {
+      // Mock auth session
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: { id: userId },
+      } as any);
+
+      // Mock membership query
+      const now = new Date();
+      const orgId1 = 'org-1';
+      const orgId2 = 'org-2';
+      const mockMemberships = [
+        {
+          id: 'mem-1',
+          organizationId: orgId1,
+          userId,
+          role: 'owner',
+          displayName: null,
+          createdAt: now,
+          organization: {
+            id: orgId1,
+            name: 'Test Org 1',
+            slug: 'test-org-1',
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          id: 'mem-2',
+          organizationId: orgId2,
+          userId,
+          role: 'member',
+          displayName: null,
+          createdAt: new Date(now.getTime() + 1000),
+          organization: {
+            id: orgId2,
+            name: 'Test Org 2',
+            slug: 'test-org-2',
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      ];
+
+      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMemberships as any);
+
+      const result = await getUserOrganizations({
+        headers,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.organizations).toBeDefined();
+      expect(result.organizations?.length).toBe(2);
+
+      // Check first organization
+      expect(result.organizations?.[0].id).toBe(orgId1);
+      expect(result.organizations?.[0].name).toBe('Test Org 1');
+      expect(result.organizations?.[0].slug).toBe('test-org-1');
+      expect(result.organizations?.[0].role).toBe('owner');
+      expect(result.organizations?.[0].joinedAt).toEqual(now);
+
+      // Check second organization
+      expect(result.organizations?.[1].id).toBe(orgId2);
+      expect(result.organizations?.[1].name).toBe('Test Org 2');
+      expect(result.organizations?.[1].slug).toBe('test-org-2');
+      expect(result.organizations?.[1].role).toBe('member');
+      expect(result.organizations?.[1].joinedAt).toEqual(new Date(now.getTime() + 1000));
+    });
+
+    it('所属組織がない場合、空配列を返すこと', async () => {
+      // Mock auth session
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: { id: userId },
+      } as any);
+
+      // Mock membership query - no memberships
+      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+
+      const result = await getUserOrganizations({
+        headers,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.organizations).toBeDefined();
+      expect(result.organizations?.length).toBe(0);
+    });
+
+    it('複数の所属組織を正しい順序で返すこと', async () => {
+      // Mock auth session
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: { id: userId },
+      } as any);
+
+      // Mock membership query with multiple orgs
+      const now = new Date();
+      const mockMemberships = [
+        {
+          id: 'mem-1',
+          organizationId: 'org-1',
+          userId,
+          role: 'owner',
+          displayName: null,
+          createdAt: now,
+          organization: {
+            id: 'org-1',
+            name: 'First Org',
+            slug: 'first-org',
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          id: 'mem-2',
+          organizationId: 'org-2',
+          userId,
+          role: 'member',
+          displayName: null,
+          createdAt: new Date(now.getTime() + 1000),
+          organization: {
+            id: 'org-2',
+            name: 'Second Org',
+            slug: 'second-org',
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          id: 'mem-3',
+          organizationId: 'org-3',
+          userId,
+          role: 'member',
+          displayName: null,
+          createdAt: new Date(now.getTime() + 2000),
+          organization: {
+            id: 'org-3',
+            name: 'Third Org',
+            slug: 'third-org',
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      ];
+
+      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMemberships as any);
+
+      const result = await getUserOrganizations({
+        headers,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.organizations?.length).toBe(3);
+      expect(result.organizations?.[0].name).toBe('First Org');
+      expect(result.organizations?.[1].name).toBe('Second Org');
+      expect(result.organizations?.[2].name).toBe('Third Org');
+    });
+
+    it('DB クエリエラーが発生した場合、エラーメッセージを返すこと', async () => {
+      // Mock auth session
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: { id: userId },
+      } as any);
+
+      // Mock membership query - throws error
+      vi.mocked(db.query.membership.findMany).mockRejectedValueOnce(new Error('Database error'));
+
+      const result = await getUserOrganizations({
+        headers,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('Database error');
+      expect(result.organizations).toBeUndefined();
+    });
+  });
+
+  describe('getOrganizationMembers', () => {
+    const organizationId = 'org-123';
+
+    it('未認証の場合、エラーを返すこと', async () => {
+      // Mock requireOrganizationAccess to fail with unauthenticated
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: false,
+        reason: 'unauthenticated',
+      } as any);
+
+      const result = await getOrganizationMembers({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.members).toBeUndefined();
+
+      // Verify requireOrganizationAccess was called with 'member' role requirement
+      expect(requireOrganizationAccess).toHaveBeenCalledWith({
+        headers,
+        organizationId,
+        requiredRole: 'member',
+      });
+    });
+
+    it('非メンバーが組織メンバー一覧にアクセスしようとした場合、エラーを返すこと', async () => {
+      // Mock requireOrganizationAccess to fail with not-member
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: false,
+        reason: 'not-member',
+      } as any);
+
+      const result = await getOrganizationMembers({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.members).toBeUndefined();
+    });
+
+    it('メンバーが所属組織のメンバー一覧を取得できること', async () => {
+      // Mock requireOrganizationAccess to succeed
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'member',
+      } as any);
+
+      // Mock membership query for all members
+      const now = new Date();
+      const mockMembers = [
+        {
+          id: 'mem-1',
+          organizationId,
+          userId: 'user-1',
+          displayName: 'Alice',
+          role: 'owner',
+          createdAt: now,
+          user: {
+            id: 'user-1',
+            name: 'Alice Johnson',
+            email: 'alice@example.com',
+            emailVerified: true,
+            twoFactorEnabled: false,
+            createdAt: now,
+            updatedAt: now,
+            image: null,
+          },
+        },
+        {
+          id: 'mem-2',
+          organizationId,
+          userId: 'user-2',
+          displayName: 'Bob',
+          role: 'member',
+          createdAt: new Date(now.getTime() + 1000),
+          user: {
+            id: 'user-2',
+            name: 'Bob Smith',
+            email: 'bob@example.com',
+            emailVerified: true,
+            twoFactorEnabled: false,
+            createdAt: now,
+            updatedAt: now,
+            image: null,
+          },
+        },
+      ];
+
+      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMembers as any);
+
+      const result = await getOrganizationMembers({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.members).toBeDefined();
+      expect(result.members?.length).toBe(2);
+
+      // Check first member
+      expect(result.members?.[0].id).toBe('mem-1');
+      expect(result.members?.[0].userId).toBe('user-1');
+      expect(result.members?.[0].userName).toBe('Alice Johnson');
+      expect(result.members?.[0].userEmail).toBe('alice@example.com');
+      expect(result.members?.[0].displayName).toBe('Alice');
+      expect(result.members?.[0].role).toBe('owner');
+      expect(result.members?.[0].joinedAt).toEqual(now);
+
+      // Check second member
+      expect(result.members?.[1].id).toBe('mem-2');
+      expect(result.members?.[1].userId).toBe('user-2');
+      expect(result.members?.[1].userName).toBe('Bob Smith');
+      expect(result.members?.[1].userEmail).toBe('bob@example.com');
+      expect(result.members?.[1].displayName).toBe('Bob');
+      expect(result.members?.[1].role).toBe('member');
+      expect(result.members?.[1].joinedAt).toEqual(new Date(now.getTime() + 1000));
+    });
+
+    it('メンバーのない組織を照会した場合、空配列を返すこと', async () => {
+      // Mock requireOrganizationAccess to succeed
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'member',
+      } as any);
+
+      // Mock membership query - no members
+      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce([]);
+
+      const result = await getOrganizationMembers({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.members).toBeDefined();
+      expect(result.members?.length).toBe(0);
+    });
+
+    it('displayName が null の場合、正しく処理すること', async () => {
+      // Mock requireOrganizationAccess to succeed
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'member',
+      } as any);
+
+      // Mock membership query with null displayName
+      const now = new Date();
+      const mockMembers = [
+        {
+          id: 'mem-1',
+          organizationId,
+          userId: 'user-1',
+          displayName: null,
+          role: 'member',
+          createdAt: now,
+          user: {
+            id: 'user-1',
+            name: 'Charlie Brown',
+            email: 'charlie@example.com',
+            emailVerified: true,
+            twoFactorEnabled: false,
+            createdAt: now,
+            updatedAt: now,
+            image: null,
+          },
+        },
+      ];
+
+      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMembers as any);
+
+      const result = await getOrganizationMembers({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.members?.length).toBe(1);
+      expect(result.members?.[0].displayName).toBeNull();
+    });
+
+    it('複数のメンバーを正しい順序で返すこと', async () => {
+      // Mock requireOrganizationAccess to succeed
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'member',
+      } as any);
+
+      // Mock membership query with multiple members
+      const now = new Date();
+      const mockMembers = [
+        {
+          id: 'mem-1',
+          organizationId,
+          userId: 'user-1',
+          displayName: 'Alice',
+          role: 'owner',
+          createdAt: now,
+          user: {
+            id: 'user-1',
+            name: 'Alice',
+            email: 'alice@example.com',
+            emailVerified: true,
+            twoFactorEnabled: false,
+            createdAt: now,
+            updatedAt: now,
+            image: null,
+          },
+        },
+        {
+          id: 'mem-2',
+          organizationId,
+          userId: 'user-2',
+          displayName: 'Bob',
+          role: 'member',
+          createdAt: new Date(now.getTime() + 1000),
+          user: {
+            id: 'user-2',
+            name: 'Bob',
+            email: 'bob@example.com',
+            emailVerified: true,
+            twoFactorEnabled: false,
+            createdAt: now,
+            updatedAt: now,
+            image: null,
+          },
+        },
+        {
+          id: 'mem-3',
+          organizationId,
+          userId: 'user-3',
+          displayName: 'Charlie',
+          role: 'member',
+          createdAt: new Date(now.getTime() + 2000),
+          user: {
+            id: 'user-3',
+            name: 'Charlie',
+            email: 'charlie@example.com',
+            emailVerified: true,
+            twoFactorEnabled: false,
+            createdAt: now,
+            updatedAt: now,
+            image: null,
+          },
+        },
+      ];
+
+      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMembers as any);
+
+      const result = await getOrganizationMembers({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.members?.length).toBe(3);
+      expect(result.members?.[0].displayName).toBe('Alice');
+      expect(result.members?.[1].displayName).toBe('Bob');
+      expect(result.members?.[2].displayName).toBe('Charlie');
+    });
+
+    it('DB クエリエラーが発生した場合、エラーメッセージを返すこと', async () => {
+      // Mock requireOrganizationAccess to succeed
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'member',
+      } as any);
+
+      // Mock membership query - throws error
+      vi.mocked(db.query.membership.findMany).mockRejectedValueOnce(new Error('Database error'));
+
+      const result = await getOrganizationMembers({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('Database error');
+      expect(result.members).toBeUndefined();
+    });
+
+    it('owner が所属組織のメンバー一覧を取得できること', async () => {
+      // Mock requireOrganizationAccess to succeed with owner role
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'owner',
+      } as any);
+
+      // Mock membership query
+      const now = new Date();
+      const mockMembers = [
+        {
+          id: 'mem-1',
+          organizationId,
+          userId: 'user-1',
+          displayName: 'Owner User',
+          role: 'owner',
+          createdAt: now,
+          user: {
+            id: 'user-1',
+            name: 'Owner',
+            email: 'owner@example.com',
+            emailVerified: true,
+            twoFactorEnabled: false,
+            createdAt: now,
+            updatedAt: now,
+            image: null,
+          },
+        },
+      ];
+
+      vi.mocked(db.query.membership.findMany).mockResolvedValueOnce(mockMembers as any);
+
+      const result = await getOrganizationMembers({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.members?.length).toBe(1);
+      expect(result.members?.[0].role).toBe('owner');
     });
   });
 });
