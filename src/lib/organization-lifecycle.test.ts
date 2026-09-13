@@ -5,6 +5,7 @@ import {
   validateInvitationToken,
   respondToInvitation,
   processPendingInvitationsForUser,
+  getInvitations,
 } from './organization-lifecycle';
 
 // Mock auth module
@@ -1378,6 +1379,249 @@ describe('Organization Lifecycle', () => {
       expect(db.query.invitation.findMany).toHaveBeenCalled();
       // Should be called twice (once for each valid invitation)
       expect(db.transaction).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getInvitations', () => {
+    const organizationId = 'org-123';
+    const baseURL = 'https://example.com';
+
+    it('owner が招待一覧を取得できることテスト', async () => {
+      // Create headers with Origin
+      const headersWithOrigin = new Headers({ 
+        authorization: '******',
+        origin: baseURL,
+      });
+
+      // Mock requireOrganizationAccess to return success with owner role
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'owner',
+      } as any);
+
+      // Mock invitation list
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days in future (not expired)
+      const mockInvitations = [
+        {
+          id: 'inv-1',
+          email: 'user1@example.com',
+          role: 'member',
+          status: 'pending',
+          token: 'token-1',
+          createdAt: now,
+          expiresAt: expiresAt,
+          organizationId,
+          inviterId: userId,
+          updatedAt: now,
+        },
+      ];
+
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce(mockInvitations as any);
+
+      const result = await getInvitations({
+        headers: headersWithOrigin,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.invitations).toBeDefined();
+      expect(result.invitations?.length).toBe(1);
+      expect(result.invitations?.[0].id).toBe('inv-1');
+      expect(result.invitations?.[0].email).toBe('user1@example.com');
+      expect(result.invitations?.[0].role).toBe('member');
+      expect(result.invitations?.[0].status).toBe('pending');
+      expect(result.invitations?.[0].inviteLink).toBe(`${baseURL}/invitations/accept?token=token-1`);
+    });
+
+    it('非 owner ユーザーが招待一覧の取得を要求した場合、エラーを返すこと', async () => {
+      // Mock requireOrganizationAccess to return insufficient-role error
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: false,
+        reason: 'insufficient-role',
+      } as any);
+
+      const result = await getInvitations({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.invitations).toBeUndefined();
+    });
+
+    it('未認証ユーザーが招待一覧の取得を要求した場合、エラーを返すこと', async () => {
+      // Mock requireOrganizationAccess to return unauthenticated error
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: false,
+        reason: 'unauthenticated',
+      } as any);
+
+      const result = await getInvitations({
+        headers,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.invitations).toBeUndefined();
+    });
+
+    it('期限切れ招待が実効ステータス "expired" として返されること', async () => {
+      // Create headers with Origin
+      const headersWithOrigin = new Headers({ 
+        authorization: '******',
+        origin: baseURL,
+      });
+
+      // Mock requireOrganizationAccess to return success with owner role
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'owner',
+      } as any);
+
+      // Mock invitation list with expired invitation
+      const now = new Date();
+      const expiresAtPast = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000); // 1 day in past (expired)
+      const mockInvitations = [
+        {
+          id: 'inv-1',
+          email: 'user1@example.com',
+          role: 'member',
+          status: 'pending', // DB status is 'pending'
+          token: 'token-1',
+          createdAt: now,
+          expiresAt: expiresAtPast, // But expiresAt is in the past
+          organizationId,
+          inviterId: userId,
+          updatedAt: now,
+        },
+      ];
+
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce(mockInvitations as any);
+
+      const result = await getInvitations({
+        headers: headersWithOrigin,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.invitations).toBeDefined();
+      expect(result.invitations?.length).toBe(1);
+      expect(result.invitations?.[0].status).toBe('expired'); // Returned as 'expired'
+    });
+
+    it('複数の招待（pending, accepted, rejected, canceled, expired）が混在する場合、それぞれ正しいステータスが返されること', async () => {
+      // Create headers with Origin
+      const headersWithOrigin = new Headers({ 
+        authorization: '******',
+        origin: baseURL,
+      });
+
+      // Mock requireOrganizationAccess to return success with owner role
+      vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        userId,
+        role: 'owner',
+      } as any);
+
+      const now = new Date();
+      const futureExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const pastExpiry = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+
+      const mockInvitations = [
+        {
+          id: 'inv-pending',
+          email: 'pending@example.com',
+          role: 'member',
+          status: 'pending',
+          token: 'token-pending',
+          createdAt: now,
+          expiresAt: futureExpiry,
+          organizationId,
+          inviterId: userId,
+          updatedAt: now,
+        },
+        {
+          id: 'inv-accepted',
+          email: 'accepted@example.com',
+          role: 'member',
+          status: 'accepted',
+          token: 'token-accepted',
+          createdAt: now,
+          expiresAt: futureExpiry,
+          organizationId,
+          inviterId: userId,
+          updatedAt: now,
+        },
+        {
+          id: 'inv-rejected',
+          email: 'rejected@example.com',
+          role: 'member',
+          status: 'rejected',
+          token: 'token-rejected',
+          createdAt: now,
+          expiresAt: futureExpiry,
+          organizationId,
+          inviterId: userId,
+          updatedAt: now,
+        },
+        {
+          id: 'inv-canceled',
+          email: 'canceled@example.com',
+          role: 'member',
+          status: 'canceled',
+          token: 'token-canceled',
+          createdAt: now,
+          expiresAt: futureExpiry,
+          organizationId,
+          inviterId: userId,
+          updatedAt: now,
+        },
+        {
+          id: 'inv-expired',
+          email: 'expired@example.com',
+          role: 'member',
+          status: 'pending',
+          token: 'token-expired',
+          createdAt: now,
+          expiresAt: pastExpiry,
+          organizationId,
+          inviterId: userId,
+          updatedAt: now,
+        },
+      ];
+
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce(mockInvitations as any);
+
+      const result = await getInvitations({
+        headers: headersWithOrigin,
+        organizationId,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.invitations?.length).toBe(5);
+
+      // Check each invitation has the correct status
+      const invitationsByEmail = (result.invitations || []).reduce(
+        (acc, inv) => {
+          acc[inv.email] = inv;
+          return acc;
+        },
+        {} as Record<string, any>
+      );
+
+      expect(invitationsByEmail['pending@example.com'].status).toBe('pending');
+      expect(invitationsByEmail['accepted@example.com'].status).toBe('accepted');
+      expect(invitationsByEmail['rejected@example.com'].status).toBe('rejected');
+      expect(invitationsByEmail['canceled@example.com'].status).toBe('canceled');
+      expect(invitationsByEmail['expired@example.com'].status).toBe('expired');
     });
   });
 });

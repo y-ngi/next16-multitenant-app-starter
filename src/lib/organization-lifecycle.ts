@@ -728,3 +728,108 @@ export async function processPendingInvitationsForUser(
     console.error('[processPendingInvitationsForUser] Error processing invitations:', error);
   }
 }
+
+export interface GetInvitationsInput {
+  readonly headers: Headers;
+  readonly organizationId: string;
+}
+
+export interface GetInvitationsResult {
+  readonly ok: boolean;
+  readonly invitations?: Array<{
+    readonly id: string;
+    readonly email: string;
+    readonly role: string;
+    readonly status: string;
+    readonly inviteLink: string;
+    readonly createdAt: Date;
+    readonly expiresAt: Date;
+  }>;
+  readonly error?: string;
+}
+
+/**
+ * Server-only function to get all invitations for an organization.
+ * Only organization owners can retrieve the invitation list.
+ * 
+ * The function calculates effective invitation status:
+ * - If DB status is 'pending' and expiresAt < now, returns 'expired' (without updating DB)
+ * - Otherwise returns DB status as-is
+ * 
+ * The inviteLink is constructed as: ${baseURL}/invitations/accept?token=${token}
+ * where baseURL is extracted from the request headers (Origin).
+ */
+export async function getInvitations(
+  input: GetInvitationsInput
+): Promise<GetInvitationsResult> {
+  const { headers, organizationId } = input;
+
+  try {
+    // 1. Check authorization (only owner can retrieve invitations)
+    const authz = await requireOrganizationAccess({
+      headers,
+      organizationId,
+      requiredRole: 'owner',
+    });
+
+    if (!authz.ok) {
+      const errorMsg =
+        authz.reason === 'insufficient-role' ? 'Only organization owners can view invitations'
+        : authz.reason === 'unauthenticated' ? 'Unauthenticated'
+        : authz.reason === 'organization-not-found' ? 'Organization not found'
+        : 'Not a member of this organization';
+      return { ok: false, error: errorMsg };
+    }
+
+    // 2. Extract baseURL from headers (Origin header)
+    const origin = headers.get('origin') || headers.get('referer');
+    let baseURL = 'https://localhost:3000'; // Default fallback
+    if (origin) {
+      try {
+        const url = new URL(origin);
+        baseURL = url.origin;
+      } catch (e) {
+        // If Origin parsing fails, use default
+      }
+    }
+
+    // 3. Fetch all invitations for the organization
+    const invitations = await db.query.invitation.findMany({
+      where: eq(invitation.organizationId, organizationId),
+    });
+
+    // 4. Calculate effective status and build response
+    const now = new Date();
+    const result = invitations.map((inv) => {
+      // Calculate effective status
+      let effectiveStatus = inv.status;
+      if (inv.status === 'pending' && inv.expiresAt < now) {
+        effectiveStatus = 'expired' as InvitationStatus;
+      }
+
+      // Construct inviteLink
+      const inviteLink = `${baseURL}/invitations/accept?token=${inv.token}`;
+
+      return {
+        id: inv.id,
+        email: inv.email,
+        role: inv.role as string,
+        status: effectiveStatus as string,
+        inviteLink,
+        createdAt: inv.createdAt,
+        expiresAt: inv.expiresAt,
+      };
+    });
+
+    return {
+      ok: true,
+      invitations: result,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch invitations';
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+}
