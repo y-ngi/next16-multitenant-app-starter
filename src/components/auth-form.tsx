@@ -13,6 +13,7 @@ export interface AuthFormProps {
   readonly isEmailLocked?: boolean;
   readonly defaultIsSignUp?: boolean;
   readonly callbackURL?: string;
+  readonly hasExistingSession?: boolean;
 }
 
 export function AuthForm({
@@ -20,6 +21,7 @@ export function AuthForm({
   isEmailLocked = false,
   defaultIsSignUp = false,
   callbackURL,
+  hasExistingSession = false,
 }: AuthFormProps) {
   const router = useRouter();
   const [isSignUp, setIsSignUp] = useState(defaultIsSignUp);
@@ -27,6 +29,10 @@ export function AuthForm({
   const [isOtpStep, setIsOtpStep] = useState(false); // 2FAコード入力画面フラグ
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 既存セッションが残っている場合、ログイン/新規登録フォームでの操作を受け付ける前に
+  // 必ずサインアウトを完了させる。これにより、別アカウントへのログインが古いセッションの
+  // 上に積み重なって進行してしまう不具合を防ぐ。
+  const [isSigningOutStaleSession, setIsSigningOutStaleSession] = useState(hasExistingSession);
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState(defaultEmail);
@@ -40,8 +46,44 @@ export function AuthForm({
     }
   }, [defaultEmail]);
 
+  // ログイン/新規登録画面に既存セッションを持ったまま到達した場合、
+  // フォーム操作を許可する前に強制的にサインアウトする。
+  useEffect(() => {
+    if (!hasExistingSession) {
+      return;
+    }
+
+    let cancelled = false;
+
+    authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          if (!cancelled) {
+            setIsSigningOutStaleSession(false);
+          }
+        },
+        onError: () => {
+          if (!cancelled) {
+            setIsSigningOutStaleSession(false);
+          }
+        },
+      },
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // hasExistingSession is a static prop for this page load; only run once on mount.
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 既存セッションのサインアウトが完了するまで、フォーム送信を受け付けない。
+    if (isSigningOutStaleSession) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -119,6 +161,17 @@ export function AuthForm({
       }
     }
   };
+
+  // 既存セッションのサインアウト完了待ち UI
+  if (isSigningOutStaleSession) {
+    return (
+      <Card className="mx-auto w-full max-w-md text-center">
+        <CardContent className="py-8">
+          <p className="text-muted-foreground text-sm">ログアウトしています...</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // メール送信完了案内の UI
   if (isEmailSentStep) {

@@ -8,6 +8,21 @@ vi.mock('@/lib/organization-lifecycle', () => ({
   validateInvitationToken: (token: string) => mockValidateToken(token),
 }));
 
+// Mock next/headers
+vi.mock('next/headers', () => ({
+  headers: vi.fn().mockResolvedValue(new Headers()),
+}));
+
+// Mock auth.api.getSession
+const mockGetSession = vi.fn();
+vi.mock('@/lib/auth', () => ({
+  auth: {
+    api: {
+      getSession: (...args: unknown[]) => mockGetSession(...args),
+    },
+  },
+}));
+
 // Mock AuthForm component to inspect props
 vi.mock('@/components/auth-form', () => ({
   AuthForm: (props: any) => (
@@ -16,6 +31,7 @@ vi.mock('@/components/auth-form', () => ({
       <span data-testid="email-locked">{String(props.isEmailLocked)}</span>
       <span data-testid="is-signup">{String(props.defaultIsSignUp)}</span>
       <span data-testid="callback-url">{props.callbackURL || ''}</span>
+      <span data-testid="has-existing-session">{String(props.hasExistingSession)}</span>
     </div>
   ),
 }));
@@ -23,6 +39,7 @@ vi.mock('@/components/auth-form', () => ({
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetSession.mockResolvedValue(null);
   });
 
   it('有効なトークンと mode=signup の場合、メール固定かつ新規登録モードで AuthForm を描画すること', async () => {
@@ -83,5 +100,31 @@ describe('LoginPage', () => {
     expect(screen.getByTestId('email-locked').textContent).toBe('false');
     expect(screen.getByTestId('is-signup').textContent).toBe('false');
     expect(screen.getByTestId('callback-url').textContent).toBe('');
+  });
+
+  it('既存セッションがある状態でアクセスした場合、hasExistingSession: true で AuthForm を描画すること', async () => {
+    mockGetSession.mockResolvedValueOnce({
+      user: { id: 'user-1', email: 'logged-in@example.com' },
+    });
+
+    const page = await LoginPage({
+      searchParams: Promise.resolve({}),
+    });
+
+    render(page);
+
+    expect(screen.getByTestId('has-existing-session').textContent).toBe('true');
+  });
+
+  it('セッションがない状態でアクセスした場合、hasExistingSession: false で AuthForm を描画すること', async () => {
+    mockGetSession.mockResolvedValueOnce(null);
+
+    const page = await LoginPage({
+      searchParams: Promise.resolve({}),
+    });
+
+    render(page);
+
+    expect(screen.getByTestId('has-existing-session').textContent).toBe('false');
   });
 });

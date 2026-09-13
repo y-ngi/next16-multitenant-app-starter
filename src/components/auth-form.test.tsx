@@ -22,6 +22,11 @@ vi.mock('@/lib/auth-client', () => ({
     signIn: {
       email: vi.fn(),
     },
+    signOut: vi.fn().mockImplementation(({ fetchOptions }: any = {}) => {
+      return Promise.resolve().then(() => {
+        fetchOptions?.onSuccess?.();
+      });
+    }),
     sendVerificationEmail: vi.fn(),
   },
   twoFactor: {
@@ -29,6 +34,8 @@ vi.mock('@/lib/auth-client', () => ({
     verifyOtp: vi.fn(),
   },
 }));
+
+import { authClient } from '@/lib/auth-client';
 
 describe('AuthForm', () => {
   beforeEach(() => {
@@ -446,6 +453,37 @@ describe('AuthForm', () => {
           callbackURL: '/invitations/accept?token=invite123',
         });
       });
+    });
+  });
+
+  describe('hasExistingSession prop', () => {
+    it('should sign out and show a signing-out state instead of the form when hasExistingSession is true', () => {
+      render(<AuthForm defaultEmail="test@example.com" hasExistingSession={true} />);
+
+      expect(authClient.signOut).toHaveBeenCalled();
+      expect(screen.getByText('ログアウトしています...')).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('user@example.com')).not.toBeInTheDocument();
+
+      // Allow the pending signOut microtask to flush inside act() before the test ends.
+      return waitFor(() => {
+        expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument();
+      });
+    });
+
+    it('should show the form immediately when hasExistingSession is false', () => {
+      render(<AuthForm defaultEmail="test@example.com" hasExistingSession={false} />);
+
+      expect(authClient.signOut).not.toHaveBeenCalled();
+      expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument();
+    });
+
+    it('should reveal the form after sign-out completes', async () => {
+      render(<AuthForm defaultEmail="test@example.com" hasExistingSession={true} />);
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('ログアウトしています...')).not.toBeInTheDocument();
     });
   });
 });

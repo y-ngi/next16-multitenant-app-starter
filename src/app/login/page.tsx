@@ -1,4 +1,6 @@
+import { headers } from 'next/headers';
 import { AuthForm } from '@/components/auth-form';
+import { auth } from '@/lib/auth';
 import { validateInvitationToken } from '@/lib/organization-lifecycle';
 
 interface PageProps {
@@ -28,6 +30,12 @@ export default async function LoginPage({ searchParams }: PageProps) {
     }
   }
 
+  // /login に既存セッションを保持したまま到達した場合、新しいログイン/新規登録操作を
+  // 古いセッションの上に積み重ねて進行させないよう、クライアント側で先にサインアウト
+  // させる必要があるかどうかをここで判定して渡す。
+  const session = await auth.api.getSession({ headers: await headers() });
+  const hasExistingSession = !!session?.user;
+
   return (
     <main className="bg-muted/40 flex min-h-screen items-center justify-center p-4">
       <AuthForm
@@ -35,6 +43,7 @@ export default async function LoginPage({ searchParams }: PageProps) {
         isEmailLocked={isEmailLocked}
         defaultIsSignUp={isSignUpMode}
         callbackURL={callbackURL}
+        hasExistingSession={hasExistingSession}
       />
     </main>
   );
