@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // 1. vi.hoisted() 内でモック関数と設定保持用オブジェクト（refs）をまとめて巻き上げる
-const { mockSendMail, refs } = vi.hoisted(() => {
+const { mockSendMail, mockProcessPendingInvitations, refs } = vi.hoisted(() => {
   return {
     mockSendMail: vi.fn(),
+    mockProcessPendingInvitations: vi.fn(),
     refs: {
       capturedAuthConfig: null as any,
       capturedOtpOptions: null as any,
@@ -18,6 +19,11 @@ vi.mock('nodemailer', () => ({
       sendMail: mockSendMail,
     })),
   },
+}));
+
+// organization-lifecycle のモック設定
+vi.mock('@/lib/organization-lifecycle', () => ({
+  processPendingInvitationsForUser: mockProcessPendingInvitations,
 }));
 
 // 3. better-auth のモック（refs オブジェクトに設定を退避）
@@ -72,6 +78,74 @@ describe('src/lib/auth.ts', () => {
           twoFactorEnabled: true,
         },
       });
+    });
+  });
+
+  // Task 6.4: Req 3.2 - databaseHooks.user.create.after: emailVerified チェック
+  describe('databaseHooks.user.create.after', () => {
+    it('emailVerified === true の場合、processPendingInvitationsForUser が呼び出されること', async () => {
+      mockProcessPendingInvitations.mockResolvedValueOnce(undefined);
+
+      const mockUser = {
+        id: 'user-123',
+        email: 'test@example.com',
+        emailVerified: true,
+        name: 'テスト太郎',
+      };
+
+      await refs.capturedAuthConfig.databaseHooks.user.create.after(mockUser);
+
+      expect(mockProcessPendingInvitations).toHaveBeenCalledWith('user-123', 'test@example.com');
+    });
+
+    it('emailVerified === false の場合、processPendingInvitationsForUser は呼び出されないこと', async () => {
+      const mockUser = {
+        id: 'user-456',
+        email: 'unverified@example.com',
+        emailVerified: false,
+        name: '未検証太郎',
+      };
+
+      await refs.capturedAuthConfig.databaseHooks.user.create.after(mockUser);
+
+      expect(mockProcessPendingInvitations).not.toHaveBeenCalled();
+    });
+  });
+
+  // Task 6.4: Req 3.3 - databaseHooks.user.update.after: emailVerified チェック
+  describe('databaseHooks.user.update.after', () => {
+    it('updateフックが定義されていること', () => {
+      expect(refs.capturedAuthConfig.databaseHooks.user.update).toBeDefined();
+      expect(refs.capturedAuthConfig.databaseHooks.user.update.after).toBeDefined();
+      expect(typeof refs.capturedAuthConfig.databaseHooks.user.update.after).toBe('function');
+    });
+
+    it('emailVerified === true の場合、processPendingInvitationsForUser が呼び出されること', async () => {
+      mockProcessPendingInvitations.mockResolvedValueOnce(undefined);
+
+      const mockUser = {
+        id: 'user-789',
+        email: 'nowverified@example.com',
+        emailVerified: true,
+        name: 'テスト二郎',
+      };
+
+      await refs.capturedAuthConfig.databaseHooks.user.update.after(mockUser);
+
+      expect(mockProcessPendingInvitations).toHaveBeenCalledWith('user-789', 'nowverified@example.com');
+    });
+
+    it('emailVerified === false の場合、processPendingInvitationsForUser は呼び出されないこと', async () => {
+      const mockUser = {
+        id: 'user-999',
+        email: 'stillunverified@example.com',
+        emailVerified: false,
+        name: 'テスト三郎',
+      };
+
+      await refs.capturedAuthConfig.databaseHooks.user.update.after(mockUser);
+
+      expect(mockProcessPendingInvitations).not.toHaveBeenCalled();
     });
   });
 

@@ -63,12 +63,26 @@ export const auth = betterAuth({
         async before(user) {
           return { data: { ...user, twoFactorEnabled: true } };
         },
-        // Process pending invitations for newly registered user (Task 4.3)
+        // Process pending invitations for newly registered user (Task 6.4: Req 3.2)
+        // Only process if email is already verified
         async after(user) {
-          // Fire and forget - process invitations without blocking user creation
-          await processPendingInvitationsForUser(user.id, user.email).catch((error) => {
-            console.error('[Auth Hook] Error processing pending invitations:', error);
-          });
+          if (user.emailVerified === true) {
+            // Fire and forget - process invitations without blocking user creation
+            await processPendingInvitationsForUser(user.id, user.email).catch((error) => {
+              console.error('[Auth Hook] Error processing pending invitations:', error);
+            });
+          }
+        },
+      },
+      update: {
+        // Task 6.4: Req 3.3 - Process pending invitations when email is verified
+        async after(user) {
+          if (user.emailVerified === true) {
+            // Fire and forget - process invitations without blocking user update
+            await processPendingInvitationsForUser(user.id, user.email).catch((error) => {
+              console.error('[Auth Hook] Error processing pending invitations:', error);
+            });
+          }
         },
       },
     },

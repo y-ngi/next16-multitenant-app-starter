@@ -159,10 +159,10 @@ export function InvitationAcceptCard({
           </Alert>
 
           <div className="flex flex-col gap-2">
-            <Link href={`/auth/signin?token=${token}`} className="w-full">
+            <Link href={`/login?email=${encodeURIComponent(invitation.email)}&token=${token}`} className="w-full">
               <Button className="w-full">ログイン</Button>
             </Link>
-            <Link href={`/auth/signup?email=${encodeURIComponent(invitation.email)}&token=${token}`}>
+            <Link href={`/login?email=${encodeURIComponent(invitation.email)}&mode=signup&token=${token}`}>
               <Button variant="outline" className="w-full">
                 新規登録
               </Button>
