@@ -343,6 +343,11 @@ export interface SendInvitationEmailParams {
   readonly toEmail: string;
   readonly organizationName: string;
   readonly inviterName: string;
+  // Always points to /invitations/accept?token=... (never directly to
+  // /login or the signup screen). This lets an invitee who is already
+  // logged in with the matching email accept/reject immediately, without
+  // being forced through a redundant re-login step. isExistingUser only
+  // changes the email copy/CTA label (login-oriented vs signup-oriented).
   readonly actionLink: string;
   readonly isExistingUser: boolean;
 }

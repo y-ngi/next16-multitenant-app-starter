@@ -550,16 +550,12 @@ export async function createInvitation(
     const inviterName = inviterUsers[0]?.name || 'Team Member';
     const organizationName = orgs[0]?.name || 'Organization';
 
-    // 6. Determine whether the invitee already has an account, and build the
-    // appropriate action link: existing users are routed straight to login,
-    // unregistered invitees are routed straight to signup. Both carry the
-    // invitation token so that /login can restore the callback to the
-    // invitation acceptance screen after authentication.
+    // 6. Determine whether the invitee already has an account. This is used
+    // to tailor the email copy/CTA label only — the link itself always
+    // points to the invitation acceptance screen so that an invitee who is
+    // already logged in with the matching email can accept/reject directly,
+    // without being forced through a re-login step.
     const isExistingUser = await checkEmailHasAccount(email);
-
-    const actionLink = isExistingUser
-      ? `${baseURL}/login?email=${encodeURIComponent(email)}&token=${token}`
-      : `${baseURL}/login?email=${encodeURIComponent(email)}&mode=signup&token=${token}`;
 
     // 7. Send invitation email
     const inviteLink = `${baseURL}/invitations/accept?token=${token}`;
@@ -567,7 +563,7 @@ export async function createInvitation(
       toEmail: email,
       organizationName,
       inviterName,
-      actionLink,
+      actionLink: inviteLink,
       isExistingUser,
     });
 

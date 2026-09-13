@@ -758,7 +758,7 @@ describe('Organization Lifecycle', () => {
       expect(capturedToken).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
     });
 
-    it('招待先メールアドレスが既存アカウントの場合、ログイン導線のリンクでメールを送信すること', async () => {
+    it('招待先メールアドレスが既存アカウントの場合、isExistingUser: true でメールを送信すること', async () => {
       vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
         ok: true,
         organizationId,
@@ -798,14 +798,15 @@ describe('Organization Lifecycle', () => {
       expect(sendInvitationEmail).toHaveBeenCalledWith(
         expect.objectContaining({
           isExistingUser: true,
-          actionLink: expect.stringContaining('/login?email='),
+          actionLink: expect.stringContaining('/invitations/accept?token='),
         })
       );
       const callArgs = vi.mocked(sendInvitationEmail).mock.calls[0][0];
       expect(callArgs.actionLink).not.toContain('mode=signup');
+      expect(callArgs.actionLink).not.toContain('/login');
     });
 
-    it('招待先メールアドレスが未登録の場合、新規登録導線のリンクでメールを送信すること', async () => {
+    it('招待先メールアドレスが未登録の場合、isExistingUser: false でメールを送信すること', async () => {
       vi.mocked(requireOrganizationAccess).mockResolvedValueOnce({
         ok: true,
         organizationId,
@@ -845,7 +846,7 @@ describe('Organization Lifecycle', () => {
       expect(sendInvitationEmail).toHaveBeenCalledWith(
         expect.objectContaining({
           isExistingUser: false,
-          actionLink: expect.stringContaining('mode=signup'),
+          actionLink: expect.stringContaining('/invitations/accept?token='),
         })
       );
     });
