@@ -8,11 +8,13 @@ import {
   getInvitations as getInvitationsService,
   validateInvitationToken as validateInvitationTokenService,
   respondToInvitation as respondToInvitationService,
+  getOrganizationMembers as getOrganizationMembersService,
   type CreateOrganizationInput,
   type GetUserOrganizationsInput,
   type CreateInvitationInput,
   type GetInvitationsInput,
   type RespondToInvitationInput,
+  type GetOrganizationMembersInput,
 } from '@/lib/organization-lifecycle';
 
 /**
@@ -102,4 +104,17 @@ export async function respondToInvitationAction(
     token,
     accept,
   } as RespondToInvitationInput);
+}
+
+/**
+ * Server action to get all members of an organization
+ */
+export async function getOrganizationMembersAction(
+  organizationId: string
+) {
+  const headersData = await headers();
+  return getOrganizationMembersService({
+    headers: headersData,
+    organizationId,
+  } as GetOrganizationMembersInput);
 }

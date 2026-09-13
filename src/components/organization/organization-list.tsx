@@ -4,8 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { getUserOrganizationsAction } from '@/app/actions/organization';
 import { toast } from 'sonner';
+import { MemberList } from './member-list';
+import { InvitationManager } from './invitation-manager';
+import { ChevronDown, ChevronUp, Users, Mail } from 'lucide-react';
 
 export interface UserOrganization {
   id: string;
@@ -19,10 +23,16 @@ export interface OrganizationListProps {
   refreshKey?: number;
 }
 
+interface ExpandedOrganization {
+  showMembers: boolean;
+  showInvitations: boolean;
+}
+
 export function OrganizationList({ refreshKey }: OrganizationListProps) {
   const [organizations, setOrganizations] = useState<UserOrganization[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedOrgs, setExpandedOrgs] = useState<Record<string, ExpandedOrganization>>({});
   const requestIdRef = useRef<number>(0);
 
   useEffect(() => {
@@ -63,6 +73,28 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
     fetchOrganizations();
   }, [refreshKey]);
 
+  const toggleMemberList = (orgId: string) => {
+    setExpandedOrgs((prev) => ({
+      ...prev,
+      [orgId]: {
+        ...prev[orgId],
+        showMembers: !prev[orgId]?.showMembers,
+        showInvitations: false, // Close invitations when opening members
+      },
+    }));
+  };
+
+  const toggleInvitations = (orgId: string) => {
+    setExpandedOrgs((prev) => ({
+      ...prev,
+      [orgId]: {
+        ...prev[orgId],
+        showInvitations: !prev[orgId]?.showInvitations,
+        showMembers: false, // Close members when opening invitations
+      },
+    }));
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -98,26 +130,96 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
   return (
     <div className="space-y-4">
       {organizations.map((org) => (
-        <Card key={org.id} className="hover:shadow-md transition-shadow">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between">
-              <div>
-                <CardTitle className="text-lg">{org.name}</CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  {org.slug}
-                </CardDescription>
+        <div key={org.id} className="space-y-2">
+          <Card className="hover:shadow-md transition-shadow">
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <CardTitle className="text-lg">{org.name}</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground">
+                    {org.slug}
+                  </CardDescription>
+                </div>
+                <Badge variant={org.role === 'owner' ? 'default' : 'secondary'}>
+                  {org.role === 'owner' ? 'オーナー' : 'メンバー'}
+                </Badge>
               </div>
-              <Badge variant={org.role === 'owner' ? 'default' : 'secondary'}>
-                {org.role === 'owner' ? 'オーナー' : 'メンバー'}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">
-              {new Date(org.joinedAt).toLocaleDateString('ja-JP')} に参加
-            </p>
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                {new Date(org.joinedAt).toLocaleDateString('ja-JP')} に参加
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleMemberList(org.id)}
+                  className="gap-2"
+                  data-testid={`member-list-toggle-${org.id}`}
+                >
+                  <Users className="h-4 w-4" />
+                  {expandedOrgs[org.id]?.showMembers ? (
+                    <>
+                      <ChevronUp className="h-4 w-4" />
+                      メンバー一覧を閉じる
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-4 w-4" />
+                      メンバー一覧
+                    </>
+                  )}
+                </Button>
+                {org.role === 'owner' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleInvitations(org.id)}
+                    className="gap-2"
+                    data-testid={`invitation-toggle-${org.id}`}
+                  >
+                    <Mail className="h-4 w-4" />
+                    {expandedOrgs[org.id]?.showInvitations ? (
+                      <>
+                        <ChevronUp className="h-4 w-4" />
+                        招待管理を閉じる
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="h-4 w-4" />
+                        招待管理
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Member List Section */}
+          {expandedOrgs[org.id]?.showMembers && (
+            <Card className="border-blue-100 bg-blue-50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">メンバー一覧</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <MemberList organizationId={org.id} />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Invitation Manager Section */}
+          {expandedOrgs[org.id]?.showInvitations && org.role === 'owner' && (
+            <Card className="border-green-100 bg-green-50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">招待管理</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <InvitationManager organizationId={org.id} />
+              </CardContent>
+            </Card>
+          )}
+        </div>
       ))}
     </div>
   );
