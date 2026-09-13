@@ -4,6 +4,7 @@ import {
   createInvitation,
   validateInvitationToken,
   respondToInvitation,
+  processPendingInvitationsForUser,
 } from './organization-lifecycle';
 
 // Mock auth module
@@ -1187,6 +1188,196 @@ describe('Organization Lifecycle', () => {
       expect(result.ok).toBe(true);
       expect(result.error).toBeUndefined();
       expect(sendAcceptanceNotificationEmail).toHaveBeenCalled();
+    });
+  });
+
+  // ========================================================================
+  // Tests for processPendingInvitationsForUser (Task 4.3)
+  // ========================================================================
+  describe('processPendingInvitationsForUser', () => {
+    const userId = 'new-user-id';
+    const email = 'invitee@example.com';
+    const organizationId = 'org-123';
+    const invitationId = 'inv-123';
+    const inviterId = 'inviter-id';
+    const organizationName = 'Test Organization';
+
+    it('有効な保留中招待がある場合、membership を作成して招待を accepted に更新すること', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([
+        {
+          id: invitationId,
+          organizationId,
+          email,
+          token: 'token-123',
+          status: 'pending',
+          expiresAt: futureDate,
+          role: 'member',
+          inviterId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ] as any);
+
+      const mockInsert = vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([{ id: 'membership-id-new' }]),
+      });
+
+      const mockUpdateSet = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([]),
+      });
+
+      const mockUpdate = vi.fn().mockReturnValue({
+        set: mockUpdateSet,
+      });
+
+      const mockTx = {
+        insert: mockInsert,
+        update: mockUpdate,
+      };
+
+      vi.mocked(db.transaction).mockImplementation(async (fn) => fn(mockTx as any));
+
+      await processPendingInvitationsForUser(userId, email);
+
+      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.transaction).toHaveBeenCalled();
+      expect(mockInsert).toHaveBeenCalled();
+      expect(mockUpdate).toHaveBeenCalled();
+    });
+
+    it('期限切れ招待がある場合、membership を作成しないこと', async () => {
+      const now = new Date();
+      const pastDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000); // 1日前
+
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([
+        {
+          id: invitationId,
+          organizationId,
+          email,
+          token: 'token-123',
+          status: 'pending',
+          expiresAt: pastDate,
+          role: 'member',
+          inviterId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ] as any);
+
+      await processPendingInvitationsForUser(userId, email);
+
+      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('キャンセル済み招待がある場合、membership を作成しないこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      // When querying for pending invitations, canceled invitations won't be returned
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
+
+      await processPendingInvitationsForUser(userId, email);
+
+      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('すでに受け入れ済み招待がある場合、membership を作成しないこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      // When querying for pending invitations, accepted invitations won't be returned
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
+
+      await processPendingInvitationsForUser(userId, email);
+
+      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('拒否済み招待がある場合、membership を作成しないこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      // When querying for pending invitations, rejected invitations won't be returned
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
+
+      await processPendingInvitationsForUser(userId, email);
+
+      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('招待が見つからない場合、エラーを出さずに成功すること', async () => {
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([]);
+
+      await processPendingInvitationsForUser(userId, email);
+
+      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('複数の有効な招待がある場合、すべてを処理すること', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+      const organizationId2 = 'org-456';
+      const invitationId2 = 'inv-456';
+
+      vi.mocked(db.query.invitation.findMany).mockResolvedValueOnce([
+        {
+          id: invitationId,
+          organizationId,
+          email,
+          token: 'token-123',
+          status: 'pending',
+          expiresAt: futureDate,
+          role: 'member',
+          inviterId,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: invitationId2,
+          organizationId: organizationId2,
+          email,
+          token: 'token-456',
+          status: 'pending',
+          expiresAt: futureDate,
+          role: 'member',
+          inviterId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ] as any);
+
+      const mockInsert = vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([{ id: 'membership-id-new' }]),
+      });
+
+      const mockUpdateSet = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([]),
+      });
+
+      const mockUpdate = vi.fn().mockReturnValue({
+        set: mockUpdateSet,
+      });
+
+      const mockTx = {
+        insert: mockInsert,
+        update: mockUpdate,
+      };
+
+      vi.mocked(db.transaction).mockImplementation(async (fn) => fn(mockTx as any));
+
+      await processPendingInvitationsForUser(userId, email);
+
+      expect(db.query.invitation.findMany).toHaveBeenCalled();
+      // Should be called twice (once for each valid invitation)
+      expect(db.transaction).toHaveBeenCalledTimes(2);
     });
   });
 });

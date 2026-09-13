@@ -4,6 +4,7 @@ import { twoFactor } from 'better-auth/plugins';
 import nodemailer from 'nodemailer';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
+import { processPendingInvitationsForUser } from '@/lib/organization-lifecycle';
 
 // Mailpit 接続用 SMTP トランスポーター
 const transporter = nodemailer.createTransport({
@@ -61,6 +62,14 @@ export const auth = betterAuth({
         // 全ユーザーに 2FA を必須化
         async before(user) {
           return { data: { ...user, twoFactorEnabled: true } };
+        },
+        // Process pending invitations for newly registered user (Task 4.3)
+        async after(user) {
+          // Fire and forget - process invitations without blocking user creation
+          processPendingInvitationsForUser(user.id, user.email).catch((error) => {
+            console.error('[Auth Hook] Error processing pending invitations:', error);
+          });
+          return user;
         },
       },
     },
