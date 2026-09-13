@@ -7,7 +7,7 @@
   - `organization.slug` は `5-organization-foundation` のスキーマで既に一意制約付きで存在し、`createOrganization` が `trim().toLowerCase()` で正規化した値を保存している。slug 解決もこれと同じ正規化規則を使う必要がある。
   - `src/lib/organization-authz.ts` の `requireOrganizationAccess` は `organizationId` を入力に取る現行の認可ゲート。slug ベースの新エントリポイントは、この関数のロジック（認証確認 → 組織存在確認 → メンバーシップ確認 → ロール確認）を再利用しつつ、解決キーを `slug` に変えた並行関数として追加するのが最小変更。
   - `getUserOrganizations()`（`src/lib/organization-lifecycle.ts`）は `{id, name, slug, role, joinedAt}` を返し、選択 UI にそのまま使える。新規のデータ取得ロジックは不要。
-  - `docs/sitemap.md` は既に `(protected)` 領域として `/personal/*`（プロフィール・組織一覧・お気に入り）と `/org/[orgSlug]/*` という将来構想を記載していた。ユーザーとの協議の結果、認証済みエリアの共通プレフィックスとして明示的な `/dashboard` を採用し、`/dashboard/personal`（個人アカウント領域）と `/dashboard/org/[orgSlug]`（組織コンテキスト）に配置する方針で合意した。既存の `/dashboard`（マイページ）はロジック変更なしで `/dashboard/personal` へ移設する。
+  - `docs/sitemap.md` は既に `(protected)` 領域として `/personal/*`（プロフィール・組織一覧・お気に入り）と `/org/[orgSlug]/*` という将来構想を記載していた。開発者チーム内での協議の結果、認証済みエリアの共通プレフィックスとして明示的な `/dashboard` を採用し、`/dashboard/personal`（個人アカウント領域）と `/dashboard/org/[orgSlug]`（組織コンテキスト）に配置する方針で合意した。既存の `/dashboard`（マイページ）はロジック変更なしで `/dashboard/personal` へ移設する。
   - 現行の `/dashboard`（本仕様で `/dashboard/personal` へ移設）は既に `OrganizationSection` → `OrganizationList` を描画しており、組織一覧はメンバー一覧/招待管理をインライン展開するトグルボタンを持つ。`/dashboard/personal/organizations` はまだ存在しない。
   - `membership` レコードは `createOrganization`（オーナー作成時）と `respondToInvitation`（承諾時）でのみ作成される。保留中・拒否済み・期限切れ・無効な招待は `membership` を生成しないため、要件3.4「承認前・拒否済み・期限切れ・無効な招待だけが存在する場合はコンテキストを表示しない」は、既存の「メンバーシップ存在確認」ロジックだけで自然に満たされる（追加ロジック不要）。
   - Next.js App Router には未認証/存在しないルートのための独自 `not-found.tsx` は現状どこにも定義されていない。`notFound()` 呼び出しに対して `src/app/dashboard/org/[orgSlug]/not-found.tsx` を新設するのが標準パターン。
@@ -51,14 +51,14 @@
 ## Design Decisions
 
 ### Decision: 認証済みエリアの共通プレフィックスとして `/dashboard` を採用する
-- **Context**: `docs/sitemap.md` は当初、Next.js のルートグループ `(protected)`（URLに現れない）を使い、個人アカウント領域を `/personal/*`、組織領域を `/org/[orgSlug]/*` として計画していた。一方、既存実装は `/dashboard` を素朴なマイページとして先行実装していた。ユーザーとの協議で、URL上に認証済みエリアであることを明示する `/dashboard` プレフィックスを個人領域・組織領域の両方に採用する方針へ変更した。
+- **Context**: `docs/sitemap.md` は当初、Next.js のルートグループ `(protected)`（URLに現れない）を使い、個人アカウント領域を `/personal/*`、組織領域を `/org/[orgSlug]/*` として計画していた。一方、既存実装は `/dashboard` を素朴なマイページとして先行実装していた。開発者チーム内での協議で、URL上に認証済みエリアであることを明示する `/dashboard` プレフィックスを個人領域・組織領域の両方に採用する方針へ変更した。
 - **Alternatives Considered**:
   1. `docs/sitemap.md` 原案どおりルートグループ `(protected)` を導入し、`/personal/*` と `/org/[orgSlug]/*` を並列配置する
   2. `/dashboard` を廃止し `/mypage` を個人領域のTOPとして新設する
   3. `/dashboard` を認証済みエリアの共通プレフィックスとして維持し、`/dashboard/personal/*` と `/dashboard/org/[orgSlug]/*` に統一する
 - **Selected Approach**: 3を採用。
-- **Rationale**: 既存の `/dashboard` 実装資産（`5-organization-foundation`/`6-organization-lifecycle` で構築済み）をそのまま活かしつつ、個人領域と組織領域を同じ認証済みプレフィックス配下に整理でき、ユーザーの明示的な指示に合致する。
-- **Trade-offs**: `docs/sitemap.md` の原案（ルートグループによる `(protected)` 抽象化）とはURL構造が異なるため、`docs/sitemap.md` 側を本方針に合わせて更新する必要がある。公開ページ（`/terms`, `/privacy`, `/ip/[ipName]` 等）や `/org/[orgSlug]` の公開プロフィールページ構想はユーザーから言及があったが、本仕様のスコープ外（roadmap 対象外）として別途扱う。
+- **Rationale**: 既存の `/dashboard` 実装資産（`5-organization-foundation`/`6-organization-lifecycle` で構築済み）をそのまま活かしつつ、個人領域と組織領域を同じ認証済みプレフィックス配下に整理でき、開発者チーム内での合意に合致する。
+- **Trade-offs**: `docs/sitemap.md` の原案（ルートグループによる `(protected)` 抽象化）とはURL構造が異なるため、`docs/sitemap.md` 側を本方針に合わせて更新する必要がある。公開ページ（`/terms`, `/privacy`, `/ip/[ipName]` 等）や `/org/[orgSlug]` の公開プロフィールページ構想は検討時に言及があったが、本仕様のスコープ外（roadmap 対象外）として別途扱う。
 - **Follow-up**: `8-organization-member-management` は `/dashboard/org/[orgSlug]/members` など本方針のプレフィックスに従うこと。
 
 ### Decision: slug 解決は新規の並行関数として追加する
