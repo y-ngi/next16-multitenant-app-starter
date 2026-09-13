@@ -457,17 +457,19 @@ describe('AuthForm', () => {
   });
 
   describe('hasExistingSession prop', () => {
-    it('should sign out and show a signing-out state instead of the form when hasExistingSession is true', () => {
+    it('should show a confirmation prompt (login mode) instead of the form when hasExistingSession is true', () => {
       render(<AuthForm defaultEmail="test@example.com" hasExistingSession={true} />);
 
-      expect(authClient.signOut).toHaveBeenCalled();
-      expect(screen.getByText('ログアウトしています...')).toBeInTheDocument();
+      expect(authClient.signOut).not.toHaveBeenCalled();
+      expect(screen.getByText('ログアウトして別アカウントでログインしますか？')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'ログアウトして続ける' })).toBeInTheDocument();
       expect(screen.queryByPlaceholderText('user@example.com')).not.toBeInTheDocument();
+    });
 
-      // Allow the pending signOut microtask to flush inside act() before the test ends.
-      return waitFor(() => {
-        expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument();
-      });
+    it('should show a signup-flavored confirmation prompt when hasExistingSession and defaultIsSignUp are true', () => {
+      render(<AuthForm defaultEmail="test@example.com" hasExistingSession={true} defaultIsSignUp={true} />);
+
+      expect(screen.getByText('ログアウトして別アカウントを作成しますか？')).toBeInTheDocument();
     });
 
     it('should show the form immediately when hasExistingSession is false', () => {
@@ -477,13 +479,21 @@ describe('AuthForm', () => {
       expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument();
     });
 
-    it('should reveal the form after sign-out completes', async () => {
+    it('should sign out and reveal the form only after the user confirms', async () => {
       render(<AuthForm defaultEmail="test@example.com" hasExistingSession={true} />);
+
+      expect(authClient.signOut).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'ログアウトして続ける' }));
+
+      expect(authClient.signOut).toHaveBeenCalled();
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument();
       });
-      expect(screen.queryByText('ログアウトしています...')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('ログアウトして別アカウントでログインしますか？')
+      ).not.toBeInTheDocument();
     });
   });
 });

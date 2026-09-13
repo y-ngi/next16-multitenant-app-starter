@@ -30,9 +30,12 @@ export function AuthForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 既存セッションが残っている場合、ログイン/新規登録フォームでの操作を受け付ける前に
-  // 必ずサインアウトを完了させる。これにより、別アカウントへのログインが古いセッションの
-  // 上に積み重なって進行してしまう不具合を防ぐ。
-  const [isSigningOutStaleSession, setIsSigningOutStaleSession] = useState(hasExistingSession);
+  // 「ログアウトして続けますか？」の確認を挟む。ユーザーが明示的にログアウトを選択して
+  // 初めてサインアウトを実行し、フォームを表示する。
+  const [needsSessionConfirmation, setNeedsSessionConfirmation] = useState(hasExistingSession);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState(defaultEmail);
@@ -46,41 +49,31 @@ export function AuthForm({
     }
   }, [defaultEmail]);
 
-  // ログイン/新規登録画面に既存セッションを持ったまま到達した場合、
-  // フォーム操作を許可する前に強制的にサインアウトする。
-  useEffect(() => {
-    if (!hasExistingSession) {
-      return;
-    }
+  // ログイン/新規登録画面に既存セッションを持ったまま到達した場合の、
+  // 明示的な「ログアウトして続ける」操作。
+  const handleConfirmSignOut = async () => {
+    setIsSigningOut(true);
+    setSignOutError(null);
 
-    let cancelled = false;
-
-    authClient.signOut({
+    await authClient.signOut({
       fetchOptions: {
         onSuccess: () => {
-          if (!cancelled) {
-            setIsSigningOutStaleSession(false);
-          }
+          setNeedsSessionConfirmation(false);
+          setIsSigningOut(false);
         },
-        onError: () => {
-          if (!cancelled) {
-            setIsSigningOutStaleSession(false);
-          }
+        onError: (ctx) => {
+          setSignOutError(ctx.error?.message || 'ログアウトに失敗しました');
+          setIsSigningOut(false);
         },
       },
     });
-
-    return () => {
-      cancelled = true;
-    };
-    // hasExistingSession is a static prop for this page load; only run once on mount.
-  }, []);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 既存セッションのサインアウトが完了するまで、フォーム送信を受け付けない。
-    if (isSigningOutStaleSession) {
+    // 既存セッションのログアウト確認が完了するまで、フォーム送信を受け付けない。
+    if (needsSessionConfirmation) {
       return;
     }
 
@@ -162,12 +155,25 @@ export function AuthForm({
     }
   };
 
-  // 既存セッションのサインアウト完了待ち UI
-  if (isSigningOutStaleSession) {
+  // 既存セッションが残っている場合の「ログアウトして続けますか？」確認 UI
+  if (needsSessionConfirmation) {
     return (
       <Card className="mx-auto w-full max-w-md text-center">
-        <CardContent className="py-8">
-          <p className="text-muted-foreground text-sm">ログアウトしています...</p>
+        <CardHeader>
+          <CardTitle>ログイン中です</CardTitle>
+          <CardDescription>
+            {isSignUp
+              ? 'ログアウトして別アカウントを作成しますか？'
+              : 'ログアウトして別アカウントでログインしますか？'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {signOutError && (
+            <div className="bg-destructive rounded-md p-3 text-sm text-white">{signOutError}</div>
+          )}
+          <Button className="w-full" onClick={handleConfirmSignOut} disabled={isSigningOut}>
+            {isSigningOut ? 'ログアウトしています...' : 'ログアウトして続ける'}
+          </Button>
         </CardContent>
       </Card>
     );
