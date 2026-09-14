@@ -53,6 +53,32 @@ describe('OrganizationContextPage', () => {
     expect(screen.getAllByText('オーナー')).toHaveLength(2);
   });
 
+  it('メンバー管理画面と設定画面へのリンクを表示すること', async () => {
+    mockResolveOrgContext.mockResolvedValueOnce({
+      ok: true,
+      organizationId: 'org-1',
+      organizationName: 'Acme Inc.',
+      organizationSlug: 'acme-team',
+      userId: 'user-1',
+      role: 'member',
+    });
+
+    const page = await OrganizationContextPage({
+      params: Promise.resolve({ orgSlug: 'acme-team' }),
+    });
+
+    render(page);
+
+    expect(screen.getByRole('link', { name: 'メンバー管理' })).toHaveAttribute(
+      'href',
+      '/dashboard/org/acme-team/members'
+    );
+    expect(screen.getByRole('link', { name: '設定' })).toHaveAttribute(
+      'href',
+      '/dashboard/org/acme-team/settings'
+    );
+  });
+
   it('想定外に解決できない場合は notFound() を呼ぶこと', async () => {
     mockResolveOrgContext.mockResolvedValueOnce({
       ok: false,

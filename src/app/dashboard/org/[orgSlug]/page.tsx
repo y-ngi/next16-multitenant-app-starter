@@ -1,8 +1,10 @@
+import Link from 'next/link';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { buttonVariants } from '@/components/ui/button';
 import { resolveOrgContext } from '@/lib/organization-context';
 
 interface OrganizationContextPageProps {
@@ -54,6 +56,20 @@ export default async function OrganizationContextPage({
             <dd className="font-medium">{roleLabels[orgContext.role]}</dd>
           </div>
         </dl>
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Link
+            href={`/dashboard/org/${orgContext.organizationSlug}/members`}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            メンバー管理
+          </Link>
+          <Link
+            href={`/dashboard/org/${orgContext.organizationSlug}/settings`}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            設定
+          </Link>
+        </div>
       </CardContent>
     </Card>
   );

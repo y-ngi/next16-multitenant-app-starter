@@ -1,108 +1,133 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { createInvitationAction, getInvitationsAction } from '@/app/actions/organization';
+import { createInvitationAction } from '@/app/actions/organization';
+import type {
+  CancelInvitationResult,
+  MemberManagementFailureReason,
+} from '@/lib/organization-member-management';
 
 export interface InvitationRecord {
-  id: string;
-  email: string;
-  role?: string;
-  status: string;
-  inviteLink: string;
-  createdAt: Date;
-  expiresAt: Date;
-  mailSent?: boolean;
+  readonly id: string;
+  readonly email: string;
+  readonly role?: string;
+  readonly status: string;
+  readonly inviteLink: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  readonly mailSent?: boolean;
 }
 
-interface InvitationManagerProps {
-  organizationId: string;
+export interface InvitationManagerProps {
+  readonly organizationId: string;
+  readonly invitations: readonly InvitationRecord[];
+  readonly onCancelInvitation?: (invitationId: string) => Promise<CancelInvitationResult>;
+  readonly onInvitationCreated?: () => void;
 }
 
-export function InvitationManager({ organizationId }: InvitationManagerProps) {
+function getInvitationMutationErrorMessage(reason: MemberManagementFailureReason): string {
+  switch (reason) {
+    case 'unauthenticated':
+    case 'insufficient-role':
+    case 'not-member':
+      return '権限がありません';
+    case 'invitation-not-pending':
+    case 'not-found':
+      return '対象の招待は既に処理済みか存在しません';
+    default:
+      return '操作が完了しませんでした。もう一度お試しください';
+  }
+}
+
+function shouldRefreshAfterFailure(reason: MemberManagementFailureReason): boolean {
+  return reason === 'invitation-not-pending' || reason === 'not-found';
+}
+
+export function InvitationManager({
+  organizationId,
+  invitations,
+  onCancelInvitation,
+  onInvitationCreated,
+}: InvitationManagerProps) {
+  const router = useRouter();
   const [email, setEmail] = useState('');
-  const [invitations, setInvitations] = useState<InvitationRecord[]>([]);
   const [loading, setLoading] = useState(false);
-  const [fetching, setFetching] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
 
-  // Load invitations on mount
-  useEffect(() => {
-    loadInvitations();
-  }, [organizationId]);
+  const handleCreateInvitation = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
 
-  const loadInvitations = async () => {
-    setFetching(true);
-    setError(null);
-    try {
-      const result = await getInvitationsAction(organizationId);
-      if (!result.ok) {
-        setError(result.error || 'Failed to load invitations');
-        setInvitations([]);
-      } else {
-        setInvitations(result.invitations || []);
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load invitations';
-      setError(errorMessage);
-      setInvitations([]);
-    } finally {
-      setFetching(false);
-    }
-  };
-
-  const handleCreateInvitation = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!email.trim()) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
       toast.error('メールアドレスを入力してください');
       return;
     }
 
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(trimmedEmail)) {
       toast.error('有効なメールアドレスを入力してください');
       return;
     }
 
     setLoading(true);
     try {
-      const result = await createInvitationAction(organizationId, email.trim());
+      const result = await createInvitationAction(organizationId, trimmedEmail);
 
       if (!result.ok) {
         toast.error(result.error || 'Failed to create invitation');
-      } else {
-        toast.success('招待を送信しました');
-        setEmail('');
-        // Add the new invitation with mailSent flag
-        const newInvitation: InvitationRecord = {
-          id: result.invitation!.id,
-          email: result.invitation!.email,
-          role: 'member',  // Default role for newly created invitations
-          status: result.invitation!.status,
-          inviteLink: result.invitation!.inviteLink,
-          expiresAt: result.invitation!.expiresAt,
-          createdAt: result.invitation!.createdAt,
-          mailSent: result.mailSent,
-        };
-        setInvitations((prev) => [newInvitation, ...prev]);
-
-        // If mail sending failed, show a warning
-        if (result.mailSent === false) {
-          toast.warning('メール送信に失敗しました。招待リンクを手動で共有してください');
-        }
+        return;
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create invitation';
+
+      toast.success('招待を送信しました');
+      setEmail('');
+      router.refresh();
+      onInvitationCreated?.();
+
+      if (result.mailSent === false) {
+        toast.warning('メール送信に失敗しました。招待リンクを手動で共有してください');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create invitation';
       toast.error(errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCancelInvitation = async (invitation: InvitationRecord) => {
+    if (!onCancelInvitation) {
+      return;
+    }
+
+    if (!window.confirm(`「${invitation.email}」への招待を取り消しますか？`)) {
+      return;
+    }
+
+    setPendingAction(`cancel:${invitation.id}`);
+
+    try {
+      const result = await onCancelInvitation(invitation.id);
+
+      if (!result.ok) {
+        toast.error(getInvitationMutationErrorMessage(result.reason));
+        if (shouldRefreshAfterFailure(result.reason)) {
+          router.refresh();
+        }
+        return;
+      }
+
+      router.refresh();
+    } catch {
+      toast.error('操作が完了しませんでした。もう一度お試しください');
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -124,7 +149,6 @@ export function InvitationManager({ organizationId }: InvitationManagerProps) {
       case 'rejected':
         return 'destructive';
       case 'expired':
-        return 'secondary';
       case 'canceled':
         return 'secondary';
       default:
@@ -132,23 +156,8 @@ export function InvitationManager({ organizationId }: InvitationManagerProps) {
     }
   };
 
-  if (error && invitations.length === 0) {
-    return (
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle>メンバーを招待</CardTitle>
-          <CardDescription>組織へメンバーを招待します</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-sm text-red-500">{error}</div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      {/* Invitation Form */}
       <Card className="w-full">
         <CardHeader>
           <CardTitle>メンバーを招待</CardTitle>
@@ -163,7 +172,7 @@ export function InvitationManager({ organizationId }: InvitationManagerProps) {
                 type="email"
                 placeholder="メールアドレスを入力"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(event) => setEmail(event.target.value)}
                 disabled={loading}
                 required
               />
@@ -175,70 +184,85 @@ export function InvitationManager({ organizationId }: InvitationManagerProps) {
         </CardContent>
       </Card>
 
-      {/* Invitations List */}
       <Card className="w-full">
         <CardHeader>
           <CardTitle>招待履歴</CardTitle>
           <CardDescription>発行した招待の一覧と状態</CardDescription>
         </CardHeader>
         <CardContent>
-          {fetching ? (
-            <div className="text-sm text-muted-foreground">読み込み中...</div>
-          ) : invitations.length === 0 ? (
+          {invitations.length === 0 ? (
             <div className="text-sm text-muted-foreground">招待はまだありません</div>
           ) : (
             <div className="space-y-4">
-              {invitations.map((invitation) => (
-                <div
-                  key={invitation.id}
-                  className="flex items-center justify-between gap-4 rounded-lg border p-4"
-                >
-                  <div className="flex-1 space-y-2 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{invitation.email}</span>
-                      <Badge
-                        variant={
-                          getStatusBadgeColor(invitation.status) === 'success'
-                            ? 'default'
-                            : 'secondary'
-                        }
-                        className="text-xs"
-                      >
-                        {invitation.status}
-                      </Badge>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(invitation.createdAt).toLocaleDateString('ja-JP')}
-                    </div>
+              {invitations.map((invitation) => {
+                const isPending = invitation.status === 'pending';
+                const isCanceling = pendingAction === `cancel:${invitation.id}`;
 
-                    {/* Show warning if email sending failed */}
-                    {invitation.mailSent === false && (
-                      <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                        メール送信に失敗しました。招待リンクを手動で共有してください
+                return (
+                  <div
+                    key={invitation.id}
+                    className="flex items-center justify-between gap-4 rounded-lg border p-4"
+                  >
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{invitation.email}</span>
+                        <Badge
+                          variant={
+                            getStatusBadgeColor(invitation.status) === 'success'
+                              ? 'default'
+                              : 'secondary'
+                          }
+                          className="text-xs"
+                        >
+                          {invitation.status}
+                        </Badge>
                       </div>
-                    )}
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(invitation.createdAt).toLocaleDateString('ja-JP')}
+                      </div>
 
-                    {/* Show invite link for pending invitations */}
-                    {invitation.status === 'pending' && (
-                      <div className="mt-2 space-y-1">
-                        <div className="text-xs text-muted-foreground">招待先限定リンク:</div>
-                        <div className="flex items-center gap-2">
-                          <code className="text-xs bg-muted p-2 rounded flex-1 truncate">
-                            {invitation.inviteLink}
-                          </code>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleCopyLink(invitation.inviteLink)}
-                          >
-                            リンクをコピー
-                          </Button>
+                      {invitation.mailSent === false ? (
+                        <div className="mt-2 rounded bg-amber-50 p-2 text-xs text-amber-600">
+                          メール送信に失敗しました。招待リンクを手動で共有してください
                         </div>
-                      </div>
-                    )}
+                      ) : null}
+
+                      {isPending ? (
+                        <div className="mt-2 space-y-2">
+                          <div className="space-y-1">
+                            <div className="text-xs text-muted-foreground">招待先限定リンク:</div>
+                            <div className="flex items-center gap-2">
+                              <code className="flex-1 truncate rounded bg-muted p-2 text-xs">
+                                {invitation.inviteLink}
+                              </code>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleCopyLink(invitation.inviteLink)}
+                              >
+                                リンクをコピー
+                              </Button>
+                            </div>
+                          </div>
+
+                          {onCancelInvitation ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="destructive"
+                              disabled={pendingAction !== null}
+                              onClick={() => handleCancelInvitation(invitation)}
+                            >
+                              {isCanceling ? '取り消し中...' : '招待を取り消す'}
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

@@ -1,15 +1,101 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { OrganizationList } from './organization-list';
+import type { InvitationRecord } from './invitation-manager';
 
-// Mock the server actions
+const memberListMock = vi.hoisted(() =>
+  vi.fn(
+    ({
+      members,
+      viewerRole,
+    }: {
+      members: ReadonlyArray<{
+        readonly id: string;
+        readonly userId: string;
+        readonly userName: string;
+        readonly userEmail?: string;
+        readonly displayName?: string | null;
+        readonly role: string;
+        readonly joinedAt: Date;
+      }>;
+      viewerRole: string;
+    }) => (
+      <div
+        data-testid="member-list-props"
+        data-viewer-role={viewerRole}
+        data-members={JSON.stringify(
+          members.map((member) => ({
+            id: member.id,
+            userId: member.userId,
+            userName: member.userName,
+            displayName: member.displayName ?? null,
+            role: member.role,
+            joinedAt:
+              member.joinedAt instanceof Date
+                ? member.joinedAt.toISOString()
+                : String(member.joinedAt),
+            hasUserEmail: Object.prototype.hasOwnProperty.call(member, 'userEmail'),
+            userEmail: member.userEmail ?? null,
+          }))
+        )}
+      >
+        {members.map((member) => (
+          <div key={member.id}>
+            <span>{member.displayName || member.userName}</span>
+            {member.userEmail ? <span>{member.userEmail}</span> : null}
+          </div>
+        ))}
+      </div>
+    )
+  )
+);
+
+const invitationManagerMock = vi.hoisted(() =>
+  vi.fn(
+    ({
+      organizationId,
+      invitations,
+      onCancelInvitation,
+      onInvitationCreated,
+    }: {
+      organizationId: string;
+      invitations: readonly InvitationRecord[];
+      onCancelInvitation?: (invitationId: string) => Promise<{ readonly ok: boolean }>;
+      onInvitationCreated?: () => void;
+    }) => (
+      <div
+        data-testid={`invitation-manager-${organizationId}`}
+        data-invitation-count={String(invitations.length)}
+        data-has-cancel={onCancelInvitation ? 'yes' : 'no'}
+        data-has-created-callback={onInvitationCreated ? 'yes' : 'no'}
+      >
+        {invitations.map((invitation) => invitation.email).join(',')}
+        {onInvitationCreated ? (
+          <button type="button" onClick={() => onInvitationCreated()}>
+            作成成功を通知
+          </button>
+        ) : null}
+      </div>
+    )
+  )
+);
+
 vi.mock('@/app/actions/organization', () => ({
   getUserOrganizationsAction: vi.fn(),
   getOrganizationMembersAction: vi.fn(),
   getInvitationsAction: vi.fn(),
 }));
 
-// Mock sonner toast
+vi.mock('@/app/actions/organization-member-management', () => ({
+  listMembersForViewerAction: vi.fn(),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock('sonner', () => ({
   toast: {
     error: vi.fn(),
@@ -18,30 +104,33 @@ vi.mock('sonner', () => ({
   },
 }));
 
-// Mock child components to avoid complex dependencies
-vi.mock('./member-list', () => ({
-  MemberList: ({ organizationId }: { organizationId: string }) => (
-    <div data-testid={`member-list-${organizationId}`}>Mock Member List</div>
-  ),
-}));
-
 vi.mock('./invitation-manager', () => ({
-  InvitationManager: ({ organizationId }: { organizationId: string }) => (
-    <div data-testid={`invitation-manager-${organizationId}`}>Mock Invitation Manager</div>
-  ),
+  InvitationManager: invitationManagerMock,
 }));
 
-import { getUserOrganizationsAction } from '@/app/actions/organization';
+vi.mock('./member-list', () => ({
+  MemberList: memberListMock,
+}));
+
+import {
+  getInvitationsAction,
+  getOrganizationMembersAction,
+  getUserOrganizationsAction,
+} from '@/app/actions/organization';
+import { listMembersForViewerAction } from '@/app/actions/organization-member-management';
 
 describe('OrganizationList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    invitationManagerMock.mockClear();
+    memberListMock.mockClear();
+    vi.mocked(getOrganizationMembersAction).mockReset();
+    vi.mocked(getInvitationsAction).mockReset();
+    vi.mocked(listMembersForViewerAction).mockReset();
   });
 
   it('読み込み中はスケルトンを表示すること', () => {
-    vi.mocked(getUserOrganizationsAction).mockImplementationOnce(
-      () => new Promise(() => {})
-    );
+    vi.mocked(getUserOrganizationsAction).mockImplementationOnce(() => new Promise(() => {}));
 
     const { container } = render(<OrganizationList />);
 
@@ -114,19 +203,17 @@ describe('OrganizationList', () => {
   });
 
   it('ロールバッジを表示すること', async () => {
-    const mockOrganizations = [
-      {
-        id: 'org-1',
-        name: 'Test Org',
-        slug: 'test-org',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
-
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
-      organizations: mockOrganizations,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'owner' as const,
+          joinedAt: new Date('2024-01-01'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -196,20 +283,17 @@ describe('OrganizationList', () => {
   });
 
   it('参加日を日本語形式で表示すること', async () => {
-    const testDate = new Date('2024-01-15');
-    const mockOrganizations = [
-      {
-        id: 'org-1',
-        name: 'Test Org',
-        slug: 'test-org',
-        role: 'owner' as const,
-        joinedAt: testDate,
-      },
-    ];
-
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
-      organizations: mockOrganizations,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'owner' as const,
+          joinedAt: new Date('2024-01-15'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -219,20 +303,33 @@ describe('OrganizationList', () => {
     });
   });
 
-  it('メンバー一覧ボタンをクリックするとメンバーリストが表示されること', async () => {
-    const mockOrganizations = [
-      {
-        id: 'org-1',
-        name: 'Test Org',
-        slug: 'test-org',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
-
+  it('member 権限の閲覧者がメンバー一覧を開くと role-aware action を使い email なしデータだけを保持すること', async () => {
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
-      organizations: mockOrganizations,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'member' as const,
+          joinedAt: new Date('2024-01-01'),
+        },
+      ],
+    });
+    vi.mocked(listMembersForViewerAction).mockResolvedValueOnce({
+      ok: true,
+      organizationId: 'org-1',
+      viewerRole: 'member',
+      members: [
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          userName: 'member-user',
+          displayName: '表示メンバー',
+          role: 'member',
+          joinedAt: new Date('2024-01-03'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -241,33 +338,66 @@ describe('OrganizationList', () => {
       expect(screen.getByTestId('member-list-toggle-org-1')).toBeInTheDocument();
     });
 
-    // Initially, member list should not be visible
+    expect(listMembersForViewerAction).not.toHaveBeenCalled();
+    expect(getOrganizationMembersAction).not.toHaveBeenCalled();
     expect(screen.queryByTestId('member-list-org-1')).not.toBeInTheDocument();
 
-    // Click the member list button
-    const memberListButton = screen.getByTestId('member-list-toggle-org-1');
-    fireEvent.click(memberListButton);
+    fireEvent.click(screen.getByTestId('member-list-toggle-org-1'));
 
-    // Now member list should be visible
     await waitFor(() => {
+      expect(listMembersForViewerAction).toHaveBeenCalledWith('test-org');
+      expect(getOrganizationMembersAction).not.toHaveBeenCalled();
       expect(screen.getByTestId('member-list-org-1')).toBeInTheDocument();
+      expect(screen.getByText('表示メンバー')).toBeInTheDocument();
     });
+
+    expect(screen.getByTestId('member-list-props')).toHaveAttribute('data-viewer-role', 'member');
+    expect(screen.getByTestId('member-list-props')).toHaveAttribute(
+      'data-members',
+      JSON.stringify([
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          userName: 'member-user',
+          displayName: '表示メンバー',
+          role: 'member',
+          joinedAt: '2024-01-03T00:00:00.000Z',
+          hasUserEmail: false,
+          userEmail: null,
+        },
+      ])
+    );
+    expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
   });
 
   it('メンバー一覧ボタンをもう一度クリックするとメンバーリストが閉じること', async () => {
-    const mockOrganizations = [
-      {
-        id: 'org-1',
-        name: 'Test Org',
-        slug: 'test-org',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
-
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
-      organizations: mockOrganizations,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'owner' as const,
+          joinedAt: new Date('2024-01-01'),
+        },
+      ],
+    });
+    vi.mocked(listMembersForViewerAction).mockResolvedValueOnce({
+      ok: true,
+      organizationId: 'org-1',
+      viewerRole: 'owner',
+      members: [
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          userName: 'member-user',
+          userEmail: 'member@example.com',
+          displayName: '表示メンバー',
+          role: 'member',
+          joinedAt: new Date('2024-01-03'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -278,13 +408,11 @@ describe('OrganizationList', () => {
 
     const memberListButton = screen.getByTestId('member-list-toggle-org-1');
 
-    // Click to open
     fireEvent.click(memberListButton);
     await waitFor(() => {
       expect(screen.getByTestId('member-list-org-1')).toBeInTheDocument();
     });
 
-    // Click to close
     fireEvent.click(memberListButton);
     await waitFor(() => {
       expect(screen.queryByTestId('member-list-org-1')).not.toBeInTheDocument();
@@ -292,19 +420,17 @@ describe('OrganizationList', () => {
   });
 
   it('オーナー権限で招待管理ボタンが表示されること', async () => {
-    const mockOrganizations = [
-      {
-        id: 'org-1',
-        name: 'Test Org',
-        slug: 'test-org',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
-
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
-      organizations: mockOrganizations,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'owner' as const,
+          joinedAt: new Date('2024-01-01'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -315,19 +441,17 @@ describe('OrganizationList', () => {
   });
 
   it('メンバー権限で招待管理ボタンが表示されないこと', async () => {
-    const mockOrganizations = [
-      {
-        id: 'org-1',
-        name: 'Test Org',
-        slug: 'test-org',
-        role: 'member' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
-
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
-      organizations: mockOrganizations,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'member' as const,
+          joinedAt: new Date('2024-01-01'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -337,20 +461,32 @@ describe('OrganizationList', () => {
     });
   });
 
-  it('招待管理ボタンをクリックするとInvitationManagerが表示されること', async () => {
-    const mockOrganizations = [
-      {
-        id: 'org-1',
-        name: 'Test Org',
-        slug: 'test-org',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
-
+  it('招待管理を開くと一覧を取得し read-only props で InvitationManager に渡すこと', async () => {
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
-      organizations: mockOrganizations,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'owner' as const,
+          joinedAt: new Date('2024-01-01'),
+        },
+      ],
+    });
+    vi.mocked(getInvitationsAction).mockResolvedValueOnce({
+      ok: true,
+      invitations: [
+        {
+          id: 'inv-1',
+          email: 'pending@example.com',
+          role: 'member',
+          status: 'pending',
+          inviteLink: 'https://example.test/invitations/accept?token=1',
+          createdAt: new Date('2024-01-03T00:00:00Z'),
+          expiresAt: new Date('2024-12-31T00:00:00Z'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -359,33 +495,146 @@ describe('OrganizationList', () => {
       expect(screen.getByTestId('invitation-toggle-org-1')).toBeInTheDocument();
     });
 
-    // Initially, invitation manager should not be visible
-    expect(screen.queryByTestId('invitation-manager-org-1')).not.toBeInTheDocument();
+    expect(getInvitationsAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('invitation-toggle-org-1'));
 
-    // Click the invitation button
-    const invitationButton = screen.getByTestId('invitation-toggle-org-1');
-    fireEvent.click(invitationButton);
-
-    // Now invitation manager should be visible
     await waitFor(() => {
+      expect(getInvitationsAction).toHaveBeenCalledWith('org-1');
       expect(screen.getByTestId('invitation-manager-org-1')).toBeInTheDocument();
     });
+
+    expect(screen.getByTestId('invitation-manager-org-1')).toHaveAttribute('data-invitation-count', '1');
+    expect(screen.getByTestId('invitation-manager-org-1')).toHaveAttribute('data-has-cancel', 'no');
+    expect(screen.getByTestId('invitation-manager-org-1')).toHaveAttribute(
+      'data-has-created-callback',
+      'yes'
+    );
+    expect(screen.getByText('pending@example.com')).toBeInTheDocument();
+  });
+
+  it('InvitationManager から招待作成成功が通知されると一覧を再取得すること', async () => {
+    vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
+      ok: true,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'owner' as const,
+          joinedAt: new Date('2024-01-01'),
+        },
+      ],
+    });
+    vi.mocked(getInvitationsAction)
+      .mockResolvedValueOnce({
+        ok: true,
+        invitations: [
+          {
+            id: 'inv-1',
+            email: 'pending@example.com',
+            role: 'member',
+            status: 'pending',
+            inviteLink: 'https://example.test/invitations/accept?token=1',
+            createdAt: new Date('2024-01-03T00:00:00Z'),
+            expiresAt: new Date('2024-12-31T00:00:00Z'),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        invitations: [
+          {
+            id: 'inv-1',
+            email: 'pending@example.com',
+            role: 'member',
+            status: 'pending',
+            inviteLink: 'https://example.test/invitations/accept?token=1',
+            createdAt: new Date('2024-01-03T00:00:00Z'),
+            expiresAt: new Date('2024-12-31T00:00:00Z'),
+          },
+          {
+            id: 'inv-2',
+            email: 'new@example.com',
+            role: 'member',
+            status: 'pending',
+            inviteLink: 'https://example.test/invitations/accept?token=2',
+            createdAt: new Date('2024-01-04T00:00:00Z'),
+            expiresAt: new Date('2024-12-31T00:00:00Z'),
+          },
+        ],
+      });
+
+    render(<OrganizationList />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('invitation-toggle-org-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('invitation-toggle-org-1'));
+
+    await waitFor(() => {
+      expect(getInvitationsAction).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('invitation-manager-org-1')).toHaveAttribute(
+        'data-invitation-count',
+        '1'
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '作成成功を通知' }));
+
+    await waitFor(() => {
+      expect(getInvitationsAction).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('invitation-manager-org-1')).toHaveAttribute(
+        'data-invitation-count',
+        '2'
+      );
+    });
+
+    expect(screen.getByText('pending@example.com,new@example.com')).toBeInTheDocument();
   });
 
   it('メンバー一覧と招待管理は同時に開かないこと', async () => {
-    const mockOrganizations = [
-      {
-        id: 'org-1',
-        name: 'Test Org',
-        slug: 'test-org',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
-
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
-      organizations: mockOrganizations,
+      organizations: [
+        {
+          id: 'org-1',
+          name: 'Test Org',
+          slug: 'test-org',
+          role: 'owner' as const,
+          joinedAt: new Date('2024-01-01'),
+        },
+      ],
+    });
+    vi.mocked(listMembersForViewerAction).mockResolvedValueOnce({
+      ok: true,
+      organizationId: 'org-1',
+      viewerRole: 'owner',
+      members: [
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          userName: 'member-user',
+          userEmail: 'member@example.com',
+          displayName: '表示メンバー',
+          role: 'member',
+          joinedAt: new Date('2024-01-03'),
+        },
+      ],
+    });
+    vi.mocked(getInvitationsAction).mockResolvedValueOnce({
+      ok: true,
+      invitations: [
+        {
+          id: 'inv-1',
+          email: 'pending@example.com',
+          role: 'member',
+          status: 'pending',
+          inviteLink: 'https://example.test/invitations/accept?token=1',
+          createdAt: new Date('2024-01-03T00:00:00Z'),
+          expiresAt: new Date('2024-12-31T00:00:00Z'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -394,16 +643,13 @@ describe('OrganizationList', () => {
       expect(screen.getByTestId('member-list-toggle-org-1')).toBeInTheDocument();
     });
 
-    // Open member list
     fireEvent.click(screen.getByTestId('member-list-toggle-org-1'));
     await waitFor(() => {
       expect(screen.getByTestId('member-list-org-1')).toBeInTheDocument();
     });
 
-    // Open invitation manager
     fireEvent.click(screen.getByTestId('invitation-toggle-org-1'));
 
-    // Member list should be closed
     await waitFor(() => {
       expect(screen.queryByTestId('member-list-org-1')).not.toBeInTheDocument();
       expect(screen.getByTestId('invitation-manager-org-1')).toBeInTheDocument();

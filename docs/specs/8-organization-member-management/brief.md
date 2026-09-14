@@ -40,7 +40,7 @@
 ## Existing Spec Touchpoints
 
 - **Extends**: organization-foundation、organization-lifecycle、organization-context
-- **Adjacent**: `src/components/ui/`、`src/app/(protected)/org/[orgSlug]/members`、`src/app/(protected)/org/[orgSlug]/settings`
+- **Adjacent**: `src/components/ui/`、`src/app/dashboard/org/[orgSlug]/members`、`src/app/dashboard/org/[orgSlug]/settings`
 
 ## Constraints
 
