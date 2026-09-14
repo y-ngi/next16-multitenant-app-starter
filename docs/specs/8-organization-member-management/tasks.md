@@ -80,7 +80,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 2.2, 2.3, 2.4_
   - _Boundary: MemberList_
 
-- [ ] 4.2 (P) `InvitationManager` に保留中招待のキャンセル操作を追加する
+- [x] 4.2 (P) `InvitationManager` に保留中招待のキャンセル操作を追加する
   - 招待一覧は `invitations` props として親（`MembersPage`）から受け取り、`InvitationManager` 自身は招待一覧を取得しない（`MemberList` と同様のデータ取得責務の一本化）
   - `status === 'pending'` の招待行に「招待を取り消す」ボタンと `onCancelInvitation` コールバックを追加し、押下時に呼び出す。成功後は `router.refresh()` を呼び出して最新の招待一覧を反映する
   - 観測可能な完了条件: pending 状態の招待行にのみキャンセルボタンが表示され、押下すると `onCancelInvitation` が呼ばれ、成功後に一覧から該当招待が消える（または `canceled` 表示になる）ことをコンポーネントテストで確認できる
@@ -141,3 +141,4 @@
 ## Implementation Notes
 - Task 2.6/2.7: `removeMember`/`changeMemberRole`/`leaveOrganization`/`cancelInvitation`/`deleteOrganization` の service-layer ユニットテストは、TDDで各関数実装（2.1-2.5）と同時に追加済みだったため、追加実装は不要と判断（レビューで service 境界内の網羅性を確認済み）。招待一覧表示・組織コンテキスト遷移・cascade実効性の検証は frontend(4.x/5.x)/統合テスト(6.2)の責務であり、2.6/2.7 の境界外。
 - Task 4.1: `organization-list.tsx`（`/dashboard/personal` の概要表示、本specの境界外）が旧 `MemberList` props に依存していたため、design 契約の単一化に伴い read-only 表示（`viewerRole:'member'` 固定、操作ボタン非表示）として合わせて更新した。
+- Task 4.2: `InvitationManager` の招待作成成功通知を legacy caller（`organization-list.tsx`、クライアント側 state 管理）にも伝える必要があったため、`router.refresh()`（`MembersPage` 向け）に加えて任意の `onInvitationCreated` コールバックを追加し、両方の呼び出し元で一覧が正しく再取得されるようにした。
