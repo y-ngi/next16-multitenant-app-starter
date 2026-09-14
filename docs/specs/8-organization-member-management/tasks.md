@@ -38,7 +38,7 @@
   - _Boundary: organization-member-management service_
   - _Depends: 1.2_
 
-- [ ] 2.4 `cancelInvitation` を実装する
+- [x] 2.4 `cancelInvitation` を実装する
   - `requireOrganizationAccessBySlug`（`requiredRole: 'owner'`）で認可判定した後、対象招待が `pending` 状態であることを確認してから無効化する。`pending` 以外は `invitation-not-pending` を返す
   - 観測可能な完了条件: owner が保留中の招待を削除でき、既に処理済みの招待に対しては削除されず `invitation-not-pending` が返ることを確認できる
   - _Requirements: 2.7, 2.8_

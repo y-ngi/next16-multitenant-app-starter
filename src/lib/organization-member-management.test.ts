@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/db', () => ({
   db: {
+    select: vi.fn(),
     transaction: vi.fn(),
+    update: vi.fn(),
   },
 }));
 
@@ -17,15 +19,31 @@ vi.mock('@/lib/organization-lifecycle', () => ({
 
 import { requireOrganizationAccessBySlug } from '@/lib/organization-authz';
 import { db } from '@/db';
-import { membership } from '@/db/schema';
+import { invitation, membership } from '@/db/schema';
 import { getOrganizationMembers } from '@/lib/organization-lifecycle';
 import {
+  cancelInvitation,
   changeMemberRole,
   ensureOwnerRemainsAfterChange,
   leaveOrganization,
   listMembersForViewer,
   removeMember,
 } from './organization-member-management';
+
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type ApplyChange = Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange'];
+
+function asDbTransaction(tx: object): DbTransaction {
+  return tx as unknown as DbTransaction;
+}
+
+function asDbSelectReturn<T>(chain: T): ReturnType<typeof db.select> {
+  return chain as unknown as ReturnType<typeof db.select>;
+}
+
+function asDbUpdateReturn<T>(chain: T): ReturnType<typeof db.update> {
+  return chain as unknown as ReturnType<typeof db.update>;
+}
 
 function createLockedMembershipSelectChain<T>(rows: T[]) {
   const promise = Promise.resolve(rows);
@@ -43,6 +61,16 @@ function createDeleteChain() {
   return {
     where: vi.fn().mockResolvedValue(undefined),
   };
+}
+
+function createSelectWhereChain<T>(rows: T[]) {
+  const promise = Promise.resolve(rows);
+  const chain = {
+    from: vi.fn(() => chain),
+    where: vi.fn(() => promise),
+  };
+
+  return chain;
 }
 
 describe('organization-member-management', () => {
@@ -193,10 +221,7 @@ describe('organization-member-management', () => {
 
   describe('ensureOwnerRemainsAfterChange', () => {
     it('唯一の owner を除去するシミュレーションでは last-owner-protection を返し、更新しないこと', async () => {
-      const applyChange = vi.fn<
-        Parameters<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>,
-        ReturnType<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>
-      >();
+      const applyChange = vi.fn<ApplyChange>();
 
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) => {
         const tx = {
@@ -211,7 +236,7 @@ describe('organization-member-management', () => {
           ),
         };
 
-        return callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0]);
+        return callback(asDbTransaction(tx));
       });
 
       const result = await ensureOwnerRemainsAfterChange({
@@ -228,10 +253,7 @@ describe('organization-member-management', () => {
     });
 
     it('複数 owner がいる場合は変更を許可して更新処理を1回だけ呼ぶこと', async () => {
-      const applyChange = vi.fn<
-        Parameters<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>,
-        ReturnType<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>
-      >().mockResolvedValue(undefined);
+      const applyChange = vi.fn<ApplyChange>().mockResolvedValue(undefined);
 
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) => {
         const tx = {
@@ -251,7 +273,7 @@ describe('organization-member-management', () => {
           ),
         };
 
-        return callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0]);
+        return callback(asDbTransaction(tx));
       });
 
       const result = await ensureOwnerRemainsAfterChange({
@@ -310,13 +332,10 @@ describe('organization-member-management', () => {
           }),
         };
 
-        return callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0]);
+        return callback(asDbTransaction(tx));
       });
 
-      const applyChange = vi.fn<
-        Parameters<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>,
-        ReturnType<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>
-      >(async () => {
+      const applyChange = vi.fn<ApplyChange>(async () => {
         callOrder.push('apply-change');
       });
 
@@ -379,7 +398,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await removeMember({ headers, slug, targetUserId: 'user-2' });
@@ -437,7 +456,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
       vi.mocked(getOrganizationMembers).mockResolvedValueOnce({
         ok: false,
@@ -497,7 +516,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await removeMember({ headers, slug, targetUserId: 'user-1' });
@@ -554,7 +573,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await changeMemberRole({
@@ -623,7 +642,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await changeMemberRole({
@@ -687,7 +706,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await changeMemberRole({
@@ -756,7 +775,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await changeMemberRole({
@@ -834,7 +853,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await leaveOrganization({ headers, slug });
@@ -880,7 +899,7 @@ describe('organization-member-management', () => {
         role: 'owner',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await leaveOrganization({ headers, slug });
@@ -930,7 +949,7 @@ describe('organization-member-management', () => {
         role: 'member',
       });
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+        callback(asDbTransaction(tx))
       );
 
       const result = await leaveOrganization({ headers, slug });
@@ -957,6 +976,176 @@ describe('organization-member-management', () => {
       });
       expect(db.transaction).not.toHaveBeenCalled();
       expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelInvitation', () => {
+    it('owner が pending 招待を取り消すと canceled に更新して成功を返すこと', async () => {
+      const selectChain = createSelectWhereChain([
+        {
+          id: 'invitation-1',
+          organizationId,
+          status: 'pending' as const,
+        },
+      ]);
+      const updateReturning = vi.fn().mockResolvedValue([{ id: 'invitation-1' }]);
+      const updateWhere = vi.fn(() => ({
+        returning: updateReturning,
+      }));
+      const updateSet = vi.fn(() => ({
+        where: updateWhere,
+      }));
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.select).mockReturnValueOnce(asDbSelectReturn(selectChain));
+      vi.mocked(db.update).mockReturnValueOnce(
+        asDbUpdateReturn({
+          set: updateSet,
+        })
+      );
+
+      const result = await cancelInvitation({ headers, slug, invitationId: 'invitation-1' });
+
+      expect(requireOrganizationAccessBySlug).toHaveBeenCalledWith({
+        headers,
+        slug,
+        requiredRole: 'owner',
+      });
+      expect(db.select).toHaveBeenCalledWith({
+        id: invitation.id,
+        organizationId: invitation.organizationId,
+        status: invitation.status,
+      });
+      expect(selectChain.from).toHaveBeenCalledWith(invitation);
+      expect(selectChain.where).toHaveBeenCalledWith(
+        and(eq(invitation.id, 'invitation-1'), eq(invitation.organizationId, organizationId))
+      );
+      expect(db.update).toHaveBeenCalledWith(invitation);
+      expect(updateSet).toHaveBeenCalledWith({
+        status: 'canceled',
+        updatedAt: expect.any(Date),
+      });
+      expect(updateWhere).toHaveBeenCalledWith(
+        and(
+          eq(invitation.id, 'invitation-1'),
+          eq(invitation.organizationId, organizationId),
+          eq(invitation.status, 'pending')
+        )
+      );
+      expect(updateReturning).toHaveBeenCalledWith({ id: invitation.id });
+      expect(result).toEqual({ ok: true });
+    });
+
+    it('owner が pending 以外の招待を取り消そうとすると invitation-not-pending を返し、更新しないこと', async () => {
+      const selectChain = createSelectWhereChain([
+        {
+          id: 'invitation-1',
+          organizationId,
+          status: 'accepted' as const,
+        },
+      ]);
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.select).mockReturnValueOnce(asDbSelectReturn(selectChain));
+
+      const result = await cancelInvitation({ headers, slug, invitationId: 'invitation-1' });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'invitation-not-pending',
+      });
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('競合で pending 更新が 0 件になった場合は invitation-not-pending を返すこと', async () => {
+      const selectChain = createSelectWhereChain([
+        {
+          id: 'invitation-1',
+          organizationId,
+          status: 'pending' as const,
+        },
+      ]);
+      const updateReturning = vi.fn().mockResolvedValue([]);
+      const updateSet = vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: updateReturning,
+        })),
+      }));
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.select).mockReturnValueOnce(asDbSelectReturn(selectChain));
+      vi.mocked(db.update).mockReturnValueOnce(
+        asDbUpdateReturn({
+          set: updateSet,
+        })
+      );
+
+      const result = await cancelInvitation({ headers, slug, invitationId: 'invitation-1' });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'invitation-not-pending',
+      });
+      expect(updateReturning).toHaveBeenCalledWith({ id: invitation.id });
+    });
+
+    it('member が cancelInvitation を呼ぶと insufficient-role を返し、招待取得へ進まないこと', async () => {
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: false,
+        reason: 'insufficient-role',
+      });
+
+      const result = await cancelInvitation({ headers, slug, invitationId: 'invitation-1' });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'insufficient-role',
+      });
+      expect(db.select).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('対象招待が存在しない場合は invitation-not-pending を返すこと', async () => {
+      const selectChain = createSelectWhereChain([]);
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.select).mockReturnValueOnce(asDbSelectReturn(selectChain));
+
+      const result = await cancelInvitation({ headers, slug, invitationId: 'missing-invitation' });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'invitation-not-pending',
+      });
+      expect(db.update).not.toHaveBeenCalled();
     });
   });
 });

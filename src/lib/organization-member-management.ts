@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { membership, user } from '@/db/schema';
+import { invitation, membership, user } from '@/db/schema';
 import { requireOrganizationAccessBySlug, type OrganizationRole } from '@/lib/organization-authz';
 import { getOrganizationMembers } from '@/lib/organization-lifecycle';
 
@@ -61,7 +61,26 @@ export type LeaveOrganizationResult =
       readonly reason: MemberManagementFailureReason;
     };
 
+export type CancelInvitationResult =
+  | {
+      readonly ok: true;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: MemberManagementFailureReason;
+    };
+
 type OrganizationMemberManagementTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+interface ViewableMemberSource {
+  readonly id: string;
+  readonly userId: string;
+  readonly userName: string;
+  readonly userEmail?: string;
+  readonly displayName?: string | null;
+  readonly role: OrganizationRole;
+  readonly joinedAt: Date;
+}
 
 export interface OwnerGuardMembership {
   readonly id: string;
@@ -114,7 +133,7 @@ async function getViewableMembers(input: {
 }
 
 function toViewableMembersForRole(
-  members: readonly OwnerGuardMembership[],
+  members: readonly ViewableMemberSource[],
   viewerRole: OrganizationRole
 ): readonly ViewableMember[] {
   return viewerRole === 'owner'
@@ -348,6 +367,67 @@ export async function leaveOrganization(
 
   if (!guardResult.ok) {
     return guardResult;
+  }
+
+  return {
+    ok: true,
+  };
+}
+
+export async function cancelInvitation(
+  input: MemberManagementActionInput & { readonly invitationId: string }
+): Promise<CancelInvitationResult> {
+  const accessResult = await requireOrganizationAccessBySlug({
+    headers: input.headers,
+    slug: input.slug,
+    requiredRole: 'owner',
+  });
+
+  if (!accessResult.ok) {
+    return {
+      ok: false,
+      reason: accessResult.reason,
+    };
+  }
+
+  const invitations = await db
+    .select({
+      id: invitation.id,
+      organizationId: invitation.organizationId,
+      status: invitation.status,
+    })
+    .from(invitation)
+    .where(and(eq(invitation.id, input.invitationId), eq(invitation.organizationId, accessResult.organizationId)));
+
+  const targetInvitation = invitations[0];
+
+  if (!targetInvitation || targetInvitation.status !== 'pending') {
+    return {
+      ok: false,
+      reason: 'invitation-not-pending',
+    };
+  }
+
+  const canceledInvitations = await db
+    .update(invitation)
+    .set({
+      status: 'canceled',
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(invitation.id, input.invitationId),
+        eq(invitation.organizationId, accessResult.organizationId),
+        eq(invitation.status, 'pending')
+      )
+    )
+    .returning({ id: invitation.id });
+
+  if (canceledInvitations.length === 0) {
+    return {
+      ok: false,
+      reason: 'invitation-not-pending',
+    };
   }
 
   return {
