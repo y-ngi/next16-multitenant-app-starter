@@ -6,6 +6,7 @@ vi.mock('@/db', () => ({
     select: vi.fn(),
     transaction: vi.fn(),
     update: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -19,11 +20,12 @@ vi.mock('@/lib/organization-lifecycle', () => ({
 
 import { requireOrganizationAccessBySlug } from '@/lib/organization-authz';
 import { db } from '@/db';
-import { invitation, membership } from '@/db/schema';
+import { invitation, membership, organization } from '@/db/schema';
 import { getOrganizationMembers } from '@/lib/organization-lifecycle';
 import {
   cancelInvitation,
   changeMemberRole,
+  deleteOrganization,
   ensureOwnerRemainsAfterChange,
   leaveOrganization,
   listMembersForViewer,
@@ -43,6 +45,10 @@ function asDbSelectReturn<T>(chain: T): ReturnType<typeof db.select> {
 
 function asDbUpdateReturn<T>(chain: T): ReturnType<typeof db.update> {
   return chain as unknown as ReturnType<typeof db.update>;
+}
+
+function asDbDeleteReturn<T>(chain: T): ReturnType<typeof db.delete> {
+  return chain as unknown as ReturnType<typeof db.delete>;
 }
 
 function createLockedMembershipSelectChain<T>(rows: T[]) {
@@ -1146,6 +1152,80 @@ describe('organization-member-management', () => {
         reason: 'invitation-not-pending',
       });
       expect(db.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteOrganization', () => {
+    it('owner が組織を削除すると成功し、対象 organization 行の削除を実行すること', async () => {
+      const deleteChain = createDeleteChain();
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.delete).mockReturnValueOnce(asDbDeleteReturn(deleteChain));
+
+      const result = await deleteOrganization({ headers, slug });
+
+      expect(requireOrganizationAccessBySlug).toHaveBeenCalledWith({
+        headers,
+        slug,
+        requiredRole: 'owner',
+      });
+      expect(db.delete).toHaveBeenCalledWith(organization);
+      expect(deleteChain.where).toHaveBeenCalledWith(eq(organization.id, organizationId));
+      expect(result).toEqual({ ok: true });
+    });
+
+    it('member が deleteOrganization を呼ぶと insufficient-role を返し、削除処理へ進まないこと', async () => {
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: false,
+        reason: 'insufficient-role',
+      });
+
+      const result = await deleteOrganization({ headers, slug });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'insufficient-role',
+      });
+      expect(db.delete).not.toHaveBeenCalled();
+    });
+
+    it('組織削除で例外が発生した場合は捕捉してログを記録し、not-found を返すこと', async () => {
+      const deleteError = new Error('delete failed');
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.delete).mockReturnValueOnce(
+        asDbDeleteReturn({
+          where: vi.fn().mockRejectedValueOnce(deleteError),
+        })
+      );
+
+      const result = await deleteOrganization({ headers, slug });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'not-found',
+      });
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[deleteOrganization] Failed to delete organization:',
+        deleteError
+      );
+
+      consoleErrorSpy.mockRestore();
     });
   });
 });

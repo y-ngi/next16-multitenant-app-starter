@@ -44,7 +44,7 @@
   - _Requirements: 2.7, 2.8_
   - _Boundary: organization-member-management service_
 
-- [ ] 2.5 `deleteOrganization` を実装する
+- [x] 2.5 `deleteOrganization` を実装する
   - `requireOrganizationAccessBySlug`（`requiredRole: 'owner'`）で認可判定した後、`organization` 行を削除する（`membership` / `invitation` は既存の `onDelete: cascade` に委ねる）。削除処理中の例外は捕捉し既存状態を維持したまま失敗結果を返す
   - 観測可能な完了条件: owner が組織を削除すると `organization` / `membership` / `invitation` の該当行がすべて消え、削除に失敗した場合は既存の組織状態がそのまま残ることを確認できる
   - _Requirements: 5.1, 5.2, 5.3_

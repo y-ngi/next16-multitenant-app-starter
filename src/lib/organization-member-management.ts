@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/db';
-import { invitation, membership, user } from '@/db/schema';
+import { invitation, membership, organization, user } from '@/db/schema';
 import { requireOrganizationAccessBySlug, type OrganizationRole } from '@/lib/organization-authz';
 import { getOrganizationMembers } from '@/lib/organization-lifecycle';
 
@@ -62,6 +62,15 @@ export type LeaveOrganizationResult =
     };
 
 export type CancelInvitationResult =
+  | {
+      readonly ok: true;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: MemberManagementFailureReason;
+    };
+
+export type DeleteOrganizationResult =
   | {
       readonly ok: true;
     }
@@ -433,4 +442,36 @@ export async function cancelInvitation(
   return {
     ok: true,
   };
+}
+
+export async function deleteOrganization(
+  input: MemberManagementActionInput
+): Promise<DeleteOrganizationResult> {
+  const accessResult = await requireOrganizationAccessBySlug({
+    headers: input.headers,
+    slug: input.slug,
+    requiredRole: 'owner',
+  });
+
+  if (!accessResult.ok) {
+    return {
+      ok: false,
+      reason: accessResult.reason,
+    };
+  }
+
+  try {
+    await db.delete(organization).where(eq(organization.id, accessResult.organizationId));
+
+    return {
+      ok: true,
+    };
+  } catch (error) {
+    console.error('[deleteOrganization] Failed to delete organization:', error);
+
+    return {
+      ok: false,
+      reason: 'not-found',
+    };
+  }
 }
