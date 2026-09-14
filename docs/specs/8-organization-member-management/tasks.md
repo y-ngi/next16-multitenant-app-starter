@@ -50,14 +50,14 @@
   - _Requirements: 5.1, 5.2, 5.3_
   - _Boundary: organization-member-management service_
 
-- [ ] 2.6 `removeMember` / `changeMemberRole` / `leaveOrganization` のユニットテストを追加する
+- [x] 2.6 `removeMember` / `changeMemberRole` / `leaveOrganization` のユニットテストを追加する
   - member による呼び出しが `insufficient-role` で拒否されること、唯一の owner に対する降格・削除・脱退が `last-owner-protection` で拒否されること、複数 owner 存在時は許可されることを検証する
   - 観測可能な完了条件: これら3関数に対するテストスイートが追加され、`vitest` 実行で全てグリーンになる
   - _Requirements: 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 4.1, 4.2_
   - _Boundary: organization-member-management service_
   - _Depends: 2.1, 2.2, 2.3_
 
-- [ ] 2.7 `cancelInvitation` / `deleteOrganization` のユニットテストを追加する
+- [x] 2.7 `cancelInvitation` / `deleteOrganization` のユニットテストを追加する
   - member による招待削除・組織削除の呼び出しが権限エラーで拒否されること、`pending` 以外の招待に対するキャンセルが拒否されること、組織削除失敗時に既存状態が維持されることを検証する
   - 観測可能な完了条件: これら2関数に対するテストスイートが追加され、`vitest` 実行で全てグリーンになる
   - _Requirements: 2.7, 2.8, 5.1, 5.2, 5.3_
@@ -137,3 +137,6 @@
   - 観測可能な完了条件: 上記エッジケースを検証するテストが追加され、`vitest` 実行でグリーンになる
   - _Requirements: 2.6, 2.8, 5.2_
   - _Depends: 5.1, 5.2_
+
+## Implementation Notes
+- Task 2.6/2.7: `removeMember`/`changeMemberRole`/`leaveOrganization`/`cancelInvitation`/`deleteOrganization` の service-layer ユニットテストは、TDDで各関数実装（2.1-2.5）と同時に追加済みだったため、追加実装は不要と判断（レビューで service 境界内の網羅性を確認済み）。招待一覧表示・組織コンテキスト遷移・cascade実効性の検証は frontend(4.x/5.x)/統合テスト(6.2)の責務であり、2.6/2.7 の境界外。
