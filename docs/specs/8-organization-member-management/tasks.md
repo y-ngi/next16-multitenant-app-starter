@@ -132,7 +132,7 @@
   - _Requirements: 5.1, 5.3_
   - _Depends: 2.7_
 
-- [ ]* 6.3 招待キャンセルと権限拒否に関する追加のエッジケーステストを追加する
+- [x]* 6.3 招待キャンセルと権限拒否に関する追加のエッジケーステストを追加する
   - member による削除・ロール変更・招待キャンセル・組織削除の要求がすべて権限エラーで拒否されること（Requirements 2.6, 2.8, 5.2）、および既に `accepted`/`expired` 等へ遷移した招待に対するキャンセル要求が `invitation-not-pending` を返すこと（Requirements 2.8）を、UIレベルの統合テストとして追加する
   - 観測可能な完了条件: 上記エッジケースを検証するテストが追加され、`vitest` 実行でグリーンになる
   - _Requirements: 2.6, 2.8, 5.2_
@@ -145,3 +145,4 @@
 - Task 5.1: `resolveOrgContext` を認可・組織情報の唯一の正準ソースとし、`listMembersForViewer` は `.members` の取得にのみ使用すること。招待取得失敗時は独自フォールバックUIを作らず、常に本物の `InvitationManager` を `invitations=[]` で描画すること（コンポーネントの責務を親ページへ持ち込まない）。
 - Task 6.1: 統合テストで `listMembersForViewer` をモックする際は、実際の `toViewableMembersForRole` の挙動（owner は `userEmail` を含み、member は完全に省略）と一致させること。role にかかわらず email を含む非現実的なモックデータで `MemberList` 単体の防御を試すのは、承認済み設計（email 非開示は service 層でのみ保証）と矛盾する誤検知を生む。
 - Task 6.2: 実DB統合テスト基盤が存在しないため、カスケード削除の検証はモックDBによる「削除呼び出し→事後の組織検索が空を返す→organization-not-found」というシーケンス検証に限定した（membership/invitation の実FKカスケードはPostgreSQLの保証としてスコープ外、design.md記載の既承認事項）。
+- Task 6.3: member による remove/role-change/cancel-invitation/org-deletion の権限拒否（Requirements 2.6, 2.8, 5.2）は、UIが操作導線自体を非表示にする（`role-visibility.integration.test.tsx`, 新規 `settings/member-permissions.integration.test.tsx`）ことと、service層が `insufficient-role` を返す既存ユニットテスト（`organization-member-management.test.ts`）の組み合わせで担保されると判断し、UIから「攻撃的に権限を突破しようとする」テストは実画面の振る舞いに反するため追加しなかった。新規テストはUI/production コードを一時的に破壊してRED、復元してGREENを確認する形で証跡を取得すること（フェイクの `RED_PHASE_OUTPUT: N/A` は却下対象）。
