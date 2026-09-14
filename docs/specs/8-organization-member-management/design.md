@@ -145,7 +145,7 @@ src/
 | 3.1 | member が自己脱退する | SettingsPage, LeaveOrganizationButton, `leaveOrganization` | Service | 自己脱退フロー |
 | 3.2 | 複数owner組織で owner が自己脱退する | SettingsPage, LeaveOrganizationButton, `leaveOrganization` | Service | 自己脱退フロー |
 | 3.3 | 唯一の owner の脱退を拒否する | `ensureOwnerRemainsAfterChange`（共有ガード） | Service | 自己脱退フロー |
-| 4.1 | 複数owner組織で owner が自己を member に変更する | MemberList（自分の行）, `changeMemberRole` | Service | ロール変更フロー |
+| 4.1 | 複数owner組織で owner が自己を member に変更する | SettingsPage, OrganizationDangerZone, `changeMemberRole` | Service | ロール変更フロー |
 | 4.2 | 唯一の owner の自己降格を拒否する | `ensureOwnerRemainsAfterChange`（共有ガード） | Service | ロール変更フロー |
 | 5.1 | owner が組織を削除する（メンバーシップ・未受諾招待も削除） | SettingsPage, OrganizationDangerZone, `deleteOrganization` | Service | 組織削除フロー |
 | 5.2 | member による組織削除を拒否する | `requireOrganizationAccessBySlug`（`requiredRole: 'owner'`） | Service | 組織削除フロー |
@@ -166,7 +166,8 @@ flowchart TD
 ```
 
 - 自己脱退（3.1〜3.3）は `requiredRole` を `member` として認可し、対象を常に呼び出し本人（`session.user.id`）に固定した上で同じガードを通す。
-- ロール変更・削除（2.2〜2.5, 4.1〜4.2）は `requiredRole: 'owner'` で認可し、対象は任意のユーザー（自分自身を含む）を指定できる。
+- 他メンバーへのロール変更・削除（2.2〜2.5）は `requiredRole: 'owner'` で認可し、対象は自分以外の任意のユーザーを指定できる。
+- 自己降格（4.1〜4.2）はサービス層としては `changeMemberRole` を自分自身の `userId` を対象に呼び出す形で同じガードを通すが、**UI 上は `OrganizationDangerZone`（Settings画面）からのみ実行可能とする**。`MemberList` は自分の行に対する操作ボタンを描画しない（対象が自分自身の場合はボタン非表示。詳細は Components and Interfaces / MemberList を参照）。これにより、同一操作に対するUIの実装場所が一意に定まる。
 - ガード判定と更新は同一の `db.transaction` 内で行い、同時実行時の owner 数不整合を防ぐ。
 
 ## Components and Interfaces
@@ -177,7 +178,7 @@ flowchart TD
 | `organization-member-management` actions | Backend / Server Action | 上記サービスの薄いラッパー | 2.2-2.8, 3.1-3.3, 4.1-4.2, 5.1-5.3 | サービス(P0) | Service |
 | MembersPage | Frontend / Route | メンバー一覧と owner 向け操作の表示 | 1.1-1.3, 2.1-2.8 | `listMembersForViewer`(P0), `getInvitationsAction`(P1) | State |
 | SettingsPage | Frontend / Route | 自己脱退・owner限定の自己降格・組織削除の表示 | 3.1-3.3, 4.1-4.2, 5.1-5.3 | サービス(P0) | State |
-| MemberList（変更） | Frontend / UI | メンバー行の表示とowner操作ボタン | 1.1-1.3, 2.2-2.4 | MembersPage(P1) | State |
+| MemberList（変更） | Frontend / UI | 他メンバー行の表示とowner操作ボタン（自分の行には操作ボタンを表示しない） | 1.1-1.3, 2.2-2.4 | MembersPage(P1) | State |
 | InvitationManager（変更） | Frontend / UI | 招待作成導線・招待履歴・キャンセル操作 | 2.1, 2.7 | MembersPage(P1) | State |
 | LeaveOrganizationButton | Frontend / UI | 自己脱退の確認と実行 | 3.1-3.3 | SettingsPage(P1) | State |
 | OrganizationDangerZone | Frontend / UI | owner限定の自己降格・組織削除の確認と実行 | 4.1-4.2, 5.1-5.3 | SettingsPage(P1) | State |
@@ -199,12 +200,12 @@ flowchart TD
 
 **Concurrency Control（owner 最小数不変条件の保護）**
 - `removeMember` / `changeMemberRole` / `leaveOrganization` は以下の手順を単一の `db.transaction` 内で実行する:
-  1. `SELECT id, role FROM membership WHERE organization_id = $1 FOR UPDATE` で対象組織の全 `membership` 行を行ロックする（PostgreSQL の行ロックにより、同一組織に対する同時トランザクションは後続がブロックされ、直列化される）。
+  1. `tx.select({ id: membership.id, role: membership.role }).from(membership).where(eq(membership.organizationId, organizationId)).for('update')` を発行し、Drizzle の標準クエリビルダーが提供する `.for('update')` 節（生SQLを書かずにチェーン可能）で対象組織の全 `membership` 行を行ロックする（PostgreSQL の行ロックにより、同一組織に対する同時トランザクションは後続がブロックされ、直列化される）。
   2. ロック取得後の行データを使って、操作後の owner 数を計算する（対象行の削除/ロール変更をシミュレートしてから `role = 'owner'` の件数を数える）。
   3. 操作後の owner 数が 0 になる場合は `ROLLBACK` 相当（例外throw等でtransaction関数から抜ける）し、`last-owner-protection` を返す。
   4. 0 にならない場合は同一トランザクション内で `UPDATE`/`DELETE` を実行し、コミットする。
 - この手順により、2つの同時リクエスト（例: 2人のownerが同時に相手を降格しようとする）が競合しても、後続のトランザクションは先行トランザクションのロック解放を待ってから最新の行データで再評価するため、owner が0人になることはない。
-- Drizzle での実装は `db.transaction(async (tx) => { ... })` 内で `tx.execute(sql`SELECT ... FOR UPDATE`)` 相当の明示的ロック付きクエリを発行する（`db:generate`／スキーマ変更は不要、クエリレベルの対応のみ）。
+- Drizzle での実装は `db.transaction(async (tx) => { ... })` 内で標準クエリビルダーの `.for('update')` を用いる（`tx.execute(sql\`...\`)` のような生SQL実行は使用しない。`docs/steering/tech.md` の「明示的な標準クエリビルダーを使用する」規約に準拠する。`db:generate`／スキーマ変更は不要、クエリレベルの対応のみ）。
 
 **Dependencies**
 - Inbound: `organization-member-management` Server Actions — 各操作の呼び出し元（P0）
@@ -334,7 +335,7 @@ export interface OrganizationMemberManagementService {
 
 | Field | Detail |
 |-------|--------|
-| Intent | 親（MembersPage）から渡された `ViewableMember[]` を表示し、owner向けの削除・ロール変更操作を提供する。自らメンバー情報を取得しない |
+| Intent | 親（MembersPage）から渡された `ViewableMember[]` を表示し、owner向けの「他メンバーに対する」削除・ロール変更操作を提供する。自らメンバー情報を取得しない。自分自身に対する降格操作は提供しない（`OrganizationDangerZone` が単独で担う） |
 | Requirements | 1.1, 1.2, 1.3, 2.2, 2.3, 2.4 |
 
 **Component Contract**
@@ -342,6 +343,7 @@ export interface OrganizationMemberManagementService {
 export interface MemberListProps {
   readonly members: readonly ViewableMember[]; // MembersPage が listMembersForViewer から取得し、既にロール別フィルタ済みのデータを渡す
   readonly viewerRole: OrganizationRole;
+  readonly viewerUserId: string; // 自分の行を判定し、自分自身には操作ボタンを描画しないために使用する
   readonly onRemoveMember: (targetUserId: string) => Promise<MemberMutationResult>;
   readonly onChangeRole: (targetUserId: string, newRole: OrganizationRole) => Promise<MemberMutationResult>;
 }
@@ -349,6 +351,7 @@ export interface MemberListProps {
 
 **Implementation Notes**
 - Integration: 既存実装は内部で `getOrganizationMembersAction` を呼び出して独自にメンバーを取得しているが、これを廃止する。`MemberList` は `members` props をそのまま描画するだけの表示コンポーネントへ変更し、データ取得責務を完全に `MembersPage` 側へ移す（`useEffect` によるフェッチを削除）。これにより、`viewerRole` が `owner` でない場合に `userEmail` が props レベルで既に存在しないことをコンポーネントツリー上で保証できる（Critical Issue 1 対応）。
+- Integration: `member.userId === viewerUserId` の行では削除・ロール変更ボタンを描画しない（自分自身に対する操作は `OrganizationDangerZone` に一本化し、`MemberList` 経由では実行できないようにする。4.1/4.2 の実装場所の重複を避けるための境界）。
 - Integration: `userEmail` は `string | undefined` とし、値が存在する行のみメールアドレスを描画する（値の有無は `listMembersForViewer` が既に決定済み）。`viewerRole === 'owner'` のときのみ操作ボタン列を描画する（UI側の表示制御は補助であり、最終的な可否はサーバー側の `requireOrganizationAccessBySlug` が担う）。
 - Integration: 削除・ロール変更成功後の一覧更新は、`onRemoveMember`/`onChangeRole` の戻り値 (`MemberMutationResult.members`) を親コンポーネント（`MembersPage`）が受け取り、state を更新して再描画する（`MemberList` 自身は再フェッチしない）。
 - Validation: 削除・ロール変更ボタン押下時は確認ダイアログを表示してから `onRemoveMember` / `onChangeRole` を呼び出す。
@@ -380,7 +383,7 @@ export interface MemberListProps {
 
 | Field | Detail |
 |-------|--------|
-| Intent | owner限定の自己降格・組織削除を確認し実行する |
+| Intent | owner限定の自己降格・組織削除を確認し実行する（自己降格 4.1/4.2 のUIは本コンポーネントのみが提供し、`MemberList` は自分の行の操作ボタンを表示しない） |
 | Requirements | 4.1, 4.2, 5.1, 5.2, 5.3 |
 
 **Implementation Notes**
@@ -411,7 +414,7 @@ export interface MemberListProps {
 
 - **Unit Tests**（`organization-member-management.ts`）:
   - `ensureOwnerRemainsAfterChange` が唯一の owner を対象にした降格・削除・脱退を拒否し、複数owner存在時は許可することを検証する。
-  - 2人の owner が同時に互いを降格する2つのリクエストを並行実行しても、最終的に owner 数が0にならず、片方が `last-owner-protection` で拒否されることを検証する（`SELECT ... FOR UPDATE` による直列化の実効性を確認する。実DB接続が必要なテストとして、既存のDB統合テスト方式（`db.transaction` を使う既存テストパターン）に倣う）。
+  - `removeMember` / `changeMemberRole` / `leaveOrganization` が `db.transaction` 内で `.for('update')` を伴うロック取得クエリを先行実行してから owner 数判定・更新を行うことを、モック化した `db`（既存テストの `vi.mock('@/db', ...)` パターンを踏襲）に対する呼び出し順序・引数の検証（`select().from().where().for('update')` が `update`/`delete` より先に呼ばれること）で確認する。本テストは同時実行そのものを実DBで再現するものではなく、ロック取得→判定→更新という実装順序が設計通りであることの静的検証である点に注意する（実際の同時実行下での直列化効果は、行ロックが PostgreSQL の標準機能であることに基づく設計上の保証とし、本リポジトリに実DB統合テスト基盤が存在しないため自動テストの対象外とする。将来的に実DB統合テスト基盤を導入する場合は本項目を差し替える）。
   - `listMembersForViewer` が owner 閲覧時のみ `userEmail` を含み、member 閲覧時は含まないことを検証する。
   - `cancelInvitation` が `pending` 以外の状態を拒否し、`pending` のみキャンセルできることを検証する。
   - `deleteOrganization` が owner以外からの呼び出しを拒否し、owner呼び出し時に組織行が削除されることを検証する。

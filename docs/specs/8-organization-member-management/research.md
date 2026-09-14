@@ -68,7 +68,17 @@
 - **Selected Approach**: 2を採用。
 - **Rationale**: `SERIALIZABLE` はDB全体の分離レベル変更とリトライロジックの実装コストが高く、本機能が必要とするのは「対象組織内の owner 数」という単一の集約に閉じた整合性のみである。行ロックは対象範囲を組織単位に限定でき、既存の `db.transaction`（Drizzle）パターンをそのまま拡張できる。
 - **Trade-offs**: 同一組織に対する同時操作はロック待ちにより直列化されるため、極端に頻繁な同時操作がある場合はレイテンシが増加するが、組織あたりの管理操作頻度は低いと想定されるため許容する。
-- **Follow-up**: 実装時に Drizzle の生SQL実行 (`tx.execute(sql`...`)`) で `FOR UPDATE` 句を発行できることを確認する。
+- **Follow-up**: 実装は生SQL実行 (`tx.execute(sql`...`)`) ではなく、Drizzle 標準クエリビルダーの `.for('update')` 節（`db.select(...).from(...).where(...).for('update')`）を用いる。`docs/steering/tech.md` が「明示的な標準クエリビルダーを使用する」ことを規約化しているため（`/kiro-validate-design` 2回目のレビューで指摘）、生SQL実行は避ける。
+
+### Decision: owner 数の同時実行テストはモックDBでの呼び出し順序検証に留める（実DB統合テストは対象外）
+- **Context**: `/kiro-validate-design` 2回目のレビューで、Testing Strategy が「既存のDB統合テスト方式」を前提としていたが、実際には本リポジトリの全テスト（`organization-lifecycle.test.ts` を含む）は `vi.mock('@/db', ...)` によって DB を完全にモック化しており、実DB接続・行ロックを検証する統合テスト基盤が存在しないことが判明した。
+- **Alternatives Considered**:
+  1. 新規に実DB統合テスト基盤（testcontainers 等）を本スペックで導入する
+  2. モック化した `db` に対して、ロック取得（`.for('update')`）が更新処理より先に呼ばれることを呼び出し順序・引数で検証する静的テストに留める
+- **Selected Approach**: 2を採用。
+- **Rationale**: 実DB統合テスト基盤の導入は本スペックの境界（owner 保護ロジックの実装）を超える大きな変更であり、既存プロジェクトのテスト方針（モックDB前提）からも逸脱する。行ロックによる直列化保証はPostgreSQLの標準機能に基づく設計上の保証とし、自動テストでは「実装が設計通りの手順（ロック→判定→更新）で呼び出しているか」を検証する。
+- **Trade-offs**: 真の同時実行下での owner 数不整合が発生しないことは自動テストでは検証されず、設計レビューとコードレビューによる保証に留まる。
+- **Follow-up**: 将来、実DB統合テスト基盤がプロジェクトに導入された場合は、本項目を真の並行リクエストテストに差し替える。
 
 ### Decision: 組織コンテキストからの「移動」はサーバー側の強制セッション終了ではなく、次回アクセス時のアクセス制御で実現する
 - **Context**: Requirement 3.1/3.2/5.1 は脱退・削除後に「組織コンテキストから移動させる」ことを求めるが、本アプリにはリアルタイムプッシュ基盤（WebSocket 等）がない。
@@ -80,7 +90,17 @@
 - **Trade-offs**: 他ユーザーによる強制退去はブラウザタブを開いたままにしていると即時反映されない（次回のナビゲーション/再読み込みで反映）。これは本機能のスコープ外（リアルタイム性は非機能要件として要求されていない）と判断する。
 - **Follow-up**: 将来リアルタイム要件が追加された場合は再設計が必要。
 
-## Risks & Mitigations
+### Decision: 自己降格（Requirement 4.1/4.2）のUIは `OrganizationDangerZone` に一本化する
+- **Context**: `/kiro-validate-design` 2回目のレビューで、Requirements Traceability表が4.1を「`MemberList`（自分の行）」の担当としていた一方、Components summary表・詳細ブロックでは同じ4.1/4.2を`OrganizationDangerZone`（Settings画面）の担当としており、実装場所が二重定義されていることが指摘された。
+- **Alternatives Considered**:
+  1. `MemberList` の自分の行にもロール変更ボタンを表示し、`OrganizationDangerZone` と並行して自己降格を実行できるようにする
+  2. 自己降格のUI導線を `OrganizationDangerZone` に一本化し、`MemberList` は自分の行の操作ボタンを非表示にする（対象は常に他者のみ）
+- **Selected Approach**: 2を採用。
+- **Rationale**: 同一操作（自己降格）に対して2つの独立したUI実装が存在すると、確認文言・エラーハンドリング・遷移先が重複実装され不整合が生じやすい。Settings画面（危険操作の集約先）に一本化することで、owner にとっても「自己に関する重大な操作はSettingsで行う」という一貫したメンタルモデルになる。
+- **Trade-offs**: メンバー一覧画面から直接自己降格できず、Settings画面への遷移が1手間増えるが、誤操作防止の観点ではむしろ望ましい。
+- **Follow-up**: なし。サービス層の `changeMemberRole` 自体は対象ユーザーを限定しないため、UI側の制約のみで境界を維持する。
+
+
 - owner 最小数チェックのタイミングと実際の削除/更新の間で競合状態（同時に2人が最後の owner を降格しようとする）が発生しうる — `SELECT ... FOR UPDATE` による行ロックで対象組織の membership 行を直列化し、単一 SQL トランザクション内でカウント確認と更新を行うことで整合性を担保する（詳細は Design Decisions を参照）。
 - 招待キャンセル対象が既に `accepted`/`expired` などへ遷移済みの場合の扱いが曖昧になりうる — `status = 'pending'` の場合のみキャンセル可能とし、それ以外は明示的なエラーを返す。
 - 組織削除の同時実行（2つのリクエストが同時に削除を要求）— 2回目の削除は対象組織が既に存在しないため `organization-not-found` 相当のエラーとして扱う。
