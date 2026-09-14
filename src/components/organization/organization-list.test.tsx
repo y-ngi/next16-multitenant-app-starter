@@ -3,6 +3,53 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { OrganizationList } from './organization-list';
 import type { InvitationRecord } from './invitation-manager';
 
+const memberListMock = vi.hoisted(() =>
+  vi.fn(
+    ({
+      members,
+      viewerRole,
+    }: {
+      members: ReadonlyArray<{
+        readonly id: string;
+        readonly userId: string;
+        readonly userName: string;
+        readonly userEmail?: string;
+        readonly displayName?: string | null;
+        readonly role: string;
+        readonly joinedAt: Date;
+      }>;
+      viewerRole: string;
+    }) => (
+      <div
+        data-testid="member-list-props"
+        data-viewer-role={viewerRole}
+        data-members={JSON.stringify(
+          members.map((member) => ({
+            id: member.id,
+            userId: member.userId,
+            userName: member.userName,
+            displayName: member.displayName ?? null,
+            role: member.role,
+            joinedAt:
+              member.joinedAt instanceof Date
+                ? member.joinedAt.toISOString()
+                : String(member.joinedAt),
+            hasUserEmail: Object.prototype.hasOwnProperty.call(member, 'userEmail'),
+            userEmail: member.userEmail ?? null,
+          }))
+        )}
+      >
+        {members.map((member) => (
+          <div key={member.id}>
+            <span>{member.displayName || member.userName}</span>
+            {member.userEmail ? <span>{member.userEmail}</span> : null}
+          </div>
+        ))}
+      </div>
+    )
+  )
+);
+
 const invitationManagerMock = vi.hoisted(() =>
   vi.fn(
     ({
@@ -39,6 +86,10 @@ vi.mock('@/app/actions/organization', () => ({
   getInvitationsAction: vi.fn(),
 }));
 
+vi.mock('@/app/actions/organization-member-management', () => ({
+  listMembersForViewerAction: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     refresh: vi.fn(),
@@ -57,18 +108,25 @@ vi.mock('./invitation-manager', () => ({
   InvitationManager: invitationManagerMock,
 }));
 
+vi.mock('./member-list', () => ({
+  MemberList: memberListMock,
+}));
+
 import {
   getInvitationsAction,
   getOrganizationMembersAction,
   getUserOrganizationsAction,
 } from '@/app/actions/organization';
+import { listMembersForViewerAction } from '@/app/actions/organization-member-management';
 
 describe('OrganizationList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     invitationManagerMock.mockClear();
+    memberListMock.mockClear();
     vi.mocked(getOrganizationMembersAction).mockReset();
     vi.mocked(getInvitationsAction).mockReset();
+    vi.mocked(listMembersForViewerAction).mockReset();
   });
 
   it('読み込み中はスケルトンを表示すること', () => {
@@ -245,7 +303,7 @@ describe('OrganizationList', () => {
     });
   });
 
-  it('メンバー一覧ボタンをクリックするとメンバーリストが表示されること', async () => {
+  it('member 権限の閲覧者がメンバー一覧を開くと role-aware action を使い email なしデータだけを保持すること', async () => {
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
       organizations: [
@@ -253,19 +311,20 @@ describe('OrganizationList', () => {
           id: 'org-1',
           name: 'Test Org',
           slug: 'test-org',
-          role: 'owner' as const,
+          role: 'member' as const,
           joinedAt: new Date('2024-01-01'),
         },
       ],
     });
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
+    vi.mocked(listMembersForViewerAction).mockResolvedValueOnce({
       ok: true,
+      organizationId: 'org-1',
+      viewerRole: 'member',
       members: [
         {
           id: 'membership-1',
           userId: 'user-1',
           userName: 'member-user',
-          userEmail: 'member@example.com',
           displayName: '表示メンバー',
           role: 'member',
           joinedAt: new Date('2024-01-03'),
@@ -279,18 +338,35 @@ describe('OrganizationList', () => {
       expect(screen.getByTestId('member-list-toggle-org-1')).toBeInTheDocument();
     });
 
+    expect(listMembersForViewerAction).not.toHaveBeenCalled();
     expect(getOrganizationMembersAction).not.toHaveBeenCalled();
     expect(screen.queryByTestId('member-list-org-1')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('member-list-toggle-org-1'));
 
     await waitFor(() => {
-      expect(getOrganizationMembersAction).toHaveBeenCalledWith('org-1');
+      expect(listMembersForViewerAction).toHaveBeenCalledWith('test-org');
+      expect(getOrganizationMembersAction).not.toHaveBeenCalled();
       expect(screen.getByTestId('member-list-org-1')).toBeInTheDocument();
       expect(screen.getByText('表示メンバー')).toBeInTheDocument();
     });
 
-    expect(screen.queryByText('member@example.com')).not.toBeInTheDocument();
+    expect(screen.getByTestId('member-list-props')).toHaveAttribute('data-viewer-role', 'member');
+    expect(screen.getByTestId('member-list-props')).toHaveAttribute(
+      'data-members',
+      JSON.stringify([
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          userName: 'member-user',
+          displayName: '表示メンバー',
+          role: 'member',
+          joinedAt: '2024-01-03T00:00:00.000Z',
+          hasUserEmail: false,
+          userEmail: null,
+        },
+      ])
+    );
     expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
   });
 
@@ -307,8 +383,10 @@ describe('OrganizationList', () => {
         },
       ],
     });
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
+    vi.mocked(listMembersForViewerAction).mockResolvedValueOnce({
       ok: true,
+      organizationId: 'org-1',
+      viewerRole: 'owner',
       members: [
         {
           id: 'membership-1',
@@ -528,8 +606,10 @@ describe('OrganizationList', () => {
         },
       ],
     });
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
+    vi.mocked(listMembersForViewerAction).mockResolvedValueOnce({
       ok: true,
+      organizationId: 'org-1',
+      viewerRole: 'owner',
       members: [
         {
           id: 'membership-1',

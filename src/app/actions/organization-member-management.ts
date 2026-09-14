@@ -2,6 +2,7 @@
 
 import { headers } from 'next/headers';
 import {
+  listMembersForViewer as listMembersForViewerService,
   removeMember as removeMemberService,
   changeMemberRole as changeMemberRoleService,
   cancelInvitation as cancelInvitationService,
@@ -23,6 +24,17 @@ type ChangeMemberRoleInput = MemberManagementActionInput & {
 type CancelInvitationInput = MemberManagementActionInput & {
   readonly invitationId: string;
 };
+
+/**
+ * Server action to list members for the current viewer
+ */
+export async function listMembersForViewerAction(slug: string) {
+  const headersData = await headers();
+  return listMembersForViewerService({
+    headers: headersData,
+    slug,
+  } as MemberManagementActionInput);
+}
 
 /**
  * Server action to remove a member from an organization

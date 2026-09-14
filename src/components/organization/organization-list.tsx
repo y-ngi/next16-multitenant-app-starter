@@ -6,14 +6,15 @@ import { ChevronDown, ChevronUp, Mail, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getInvitationsAction,
-  getOrganizationMembersAction,
   getUserOrganizationsAction,
 } from '@/app/actions/organization';
+import { listMembersForViewerAction } from '@/app/actions/organization-member-management';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type {
+  MemberManagementFailureReason,
   MemberMutationResult,
   OrganizationRole,
   ViewableMember,
@@ -67,6 +68,19 @@ async function handleReadOnlyChangeRole(
   void _targetUserId;
   void _newRole;
   return readOnlyMemberMutationResult;
+}
+
+function getMemberListErrorMessage(reason: MemberManagementFailureReason): string {
+  switch (reason) {
+    case 'unauthenticated':
+    case 'insufficient-role':
+    case 'not-member':
+      return '権限がありません';
+    case 'organization-not-found':
+      return '組織が見つかりません';
+    default:
+      return 'メンバーの取得に失敗しました';
+  }
 }
 
 export function OrganizationList({ refreshKey }: OrganizationListProps) {
@@ -123,7 +137,7 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
     void fetchOrganizations();
   }, [refreshKey]);
 
-  const loadOrganizationMembers = async (organizationId: string) => {
+  const loadOrganizationMembers = async (organizationId: string, slug: string) => {
     const currentRequestId = (memberRequestIdRef.current[organizationId] ?? 0) + 1;
     memberRequestIdRef.current[organizationId] = currentRequestId;
 
@@ -137,21 +151,21 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
     }));
 
     try {
-      const result = await getOrganizationMembersAction(organizationId);
-      const members = result.members;
+      const result = await listMembersForViewerAction(slug);
 
       if (currentRequestId !== memberRequestIdRef.current[organizationId]) {
         return;
       }
 
-      if (result.ok && members) {
+      if (result.ok) {
         setOrganizationMembers((prev) => ({
           ...prev,
           [organizationId]: {
-            members: members.map((member) => ({
+            members: result.members.map((member) => ({
               id: member.id,
               userId: member.userId,
               userName: member.userName,
+              ...(member.userEmail !== undefined ? { userEmail: member.userEmail } : {}),
               displayName: member.displayName,
               role: member.role,
               joinedAt: new Date(member.joinedAt),
@@ -163,7 +177,7 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
         return;
       }
 
-      const message = result.error || 'メンバーの取得に失敗しました';
+      const message = getMemberListErrorMessage(result.reason);
       setOrganizationMembers((prev) => ({
         ...prev,
         [organizationId]: {
@@ -260,7 +274,7 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
     }
   };
 
-  const toggleMemberList = (orgId: string) => {
+  const toggleMemberList = (orgId: string, slug: string) => {
     const shouldShowMembers = !expandedOrgs[orgId]?.showMembers;
 
     setExpandedOrgs((prev) => ({
@@ -273,7 +287,7 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
     }));
 
     if (shouldShowMembers) {
-      void loadOrganizationMembers(orgId);
+      void loadOrganizationMembers(orgId, slug);
     }
   };
 
@@ -358,7 +372,7 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => toggleMemberList(org.id)}
+                  onClick={() => toggleMemberList(org.id, org.slug)}
                   className="gap-2"
                   data-testid={`member-list-toggle-${org.id}`}
                 >
