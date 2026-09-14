@@ -31,7 +31,7 @@
   - _Boundary: organization-member-management service_
   - _Depends: 1.2_
 
-- [ ] 2.3 `leaveOrganization` を実装する
+- [x] 2.3 `leaveOrganization` を実装する
   - `requireOrganizationAccessBySlug`（`requiredRole: 'member'`、対象は常に呼び出し本人）で認可判定した後、1.2 の共有ガードを介して呼び出し本人の所属を削除する
   - 観測可能な完了条件: 複数 owner が存在する組織で owner が自己脱退でき、唯一の owner の場合は `last-owner-protection` が返ることを確認できる
   - _Requirements: 3.1, 3.2, 3.3_

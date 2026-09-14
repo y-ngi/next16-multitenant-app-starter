@@ -52,6 +52,15 @@ export type MemberMutationResult =
       readonly reason: MemberManagementFailureReason;
     };
 
+export type LeaveOrganizationResult =
+  | {
+      readonly ok: true;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: MemberManagementFailureReason;
+    };
+
 type OrganizationMemberManagementTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export interface OwnerGuardMembership {
@@ -302,5 +311,46 @@ export async function changeMemberRole(
   return {
     ok: true,
     members: toViewableMembersForRole(nextMembers, accessResult.role),
+  };
+}
+
+export async function leaveOrganization(
+  input: MemberManagementActionInput
+): Promise<LeaveOrganizationResult> {
+  const accessResult = await requireOrganizationAccessBySlug({
+    headers: input.headers,
+    slug: input.slug,
+    requiredRole: 'member',
+  });
+
+  if (!accessResult.ok) {
+    return {
+      ok: false,
+      reason: accessResult.reason,
+    };
+  }
+
+  const guardResult = await ensureOwnerRemainsAfterChange({
+    organizationId: accessResult.organizationId,
+    simulateChange: (currentMembers) =>
+      currentMembers.filter((member) => member.userId !== accessResult.userId),
+    applyChange: async (tx) => {
+      await tx
+        .delete(membership)
+        .where(
+          and(
+            eq(membership.organizationId, accessResult.organizationId),
+            eq(membership.userId, accessResult.userId)
+          )
+        );
+    },
+  });
+
+  if (!guardResult.ok) {
+    return guardResult;
+  }
+
+  return {
+    ok: true,
   };
 }

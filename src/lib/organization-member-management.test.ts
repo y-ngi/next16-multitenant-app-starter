@@ -22,6 +22,7 @@ import { getOrganizationMembers } from '@/lib/organization-lifecycle';
 import {
   changeMemberRole,
   ensureOwnerRemainsAfterChange,
+  leaveOrganization,
   listMembersForViewer,
   removeMember,
 } from './organization-member-management';
@@ -789,6 +790,170 @@ describe('organization-member-management', () => {
       expect(result).toEqual({
         ok: false,
         reason: 'insufficient-role',
+      });
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('leaveOrganization', () => {
+    it('owner が複数 owner の組織を自己脱退すると成功し、自身の所属を削除すること', async () => {
+      const deleteChain = createDeleteChain();
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+            {
+              id: 'membership-2',
+              userId: 'user-2',
+              userName: 'Co Owner User',
+              userEmail: 'co-owner@example.com',
+              displayName: '共同オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        delete: vi.fn(() => deleteChain),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'user-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await leaveOrganization({ headers, slug });
+
+      expect(requireOrganizationAccessBySlug).toHaveBeenCalledWith({
+        headers,
+        slug,
+        requiredRole: 'member',
+      });
+      expect(result).toEqual({ ok: true });
+      expect(tx.delete).toHaveBeenCalledWith(membership);
+      expect(deleteChain.where).toHaveBeenCalledWith(
+        and(eq(membership.organizationId, organizationId), eq(membership.userId, 'user-1'))
+      );
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+
+    it('唯一の owner が自己脱退しようとすると last-owner-protection を返し、削除しないこと', async () => {
+      const deleteChain = createDeleteChain();
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        delete: vi.fn(() => deleteChain),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'user-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await leaveOrganization({ headers, slug });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'last-owner-protection',
+      });
+      expect(tx.delete).not.toHaveBeenCalled();
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+
+    it('member が自己脱退できること', async () => {
+      const deleteChain = createDeleteChain();
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+            {
+              id: 'membership-2',
+              userId: 'user-2',
+              userName: 'Member User',
+              userEmail: 'member@example.com',
+              displayName: null,
+              role: 'member' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        delete: vi.fn(() => deleteChain),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'user-2',
+        role: 'member',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await leaveOrganization({ headers, slug });
+
+      expect(result).toEqual({ ok: true });
+      expect(tx.delete).toHaveBeenCalledWith(membership);
+      expect(deleteChain.where).toHaveBeenCalledWith(
+        and(eq(membership.organizationId, organizationId), eq(membership.userId, 'user-2'))
+      );
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+
+    it('非メンバーは認可失敗理由をそのまま返し、削除処理へ進まないこと', async () => {
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: false,
+        reason: 'not-member',
+      });
+
+      const result = await leaveOrganization({ headers, slug });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'not-member',
       });
       expect(db.transaction).not.toHaveBeenCalled();
       expect(getOrganizationMembers).not.toHaveBeenCalled();
