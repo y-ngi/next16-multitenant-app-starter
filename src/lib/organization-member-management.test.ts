@@ -19,7 +19,12 @@ import { requireOrganizationAccessBySlug } from '@/lib/organization-authz';
 import { db } from '@/db';
 import { membership } from '@/db/schema';
 import { getOrganizationMembers } from '@/lib/organization-lifecycle';
-import { ensureOwnerRemainsAfterChange, listMembersForViewer, removeMember } from './organization-member-management';
+import {
+  changeMemberRole,
+  ensureOwnerRemainsAfterChange,
+  listMembersForViewer,
+  removeMember,
+} from './organization-member-management';
 
 function createLockedMembershipSelectChain<T>(rows: T[]) {
   const promise = Promise.resolve(rows);
@@ -501,6 +506,291 @@ describe('organization-member-management', () => {
         reason: 'last-owner-protection',
       });
       expect(tx.delete).not.toHaveBeenCalled();
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('changeMemberRole', () => {
+    it("owner が member を owner に変更すると、更新後の members を返すこと", async () => {
+      const updateWhere = vi.fn().mockResolvedValue(undefined);
+      const updateSet = vi.fn(() => ({
+        where: updateWhere,
+      }));
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+            {
+              id: 'membership-2',
+              userId: 'user-2',
+              userName: 'Member User',
+              userEmail: 'member@example.com',
+              displayName: null,
+              role: 'member' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        update: vi.fn(() => ({
+          set: updateSet,
+        })),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await changeMemberRole({
+        headers,
+        slug,
+        targetUserId: 'user-2',
+        newRole: 'owner',
+      });
+
+      expect(tx.update).toHaveBeenCalledWith(membership);
+      expect(updateSet).toHaveBeenCalledWith({ role: 'owner' });
+      expect(updateWhere).toHaveBeenCalledWith(
+        and(eq(membership.organizationId, organizationId), eq(membership.userId, 'user-2'))
+      );
+      expect(result).toEqual({
+        ok: true,
+        members: [
+          members[0],
+          {
+            ...members[1],
+            role: 'owner',
+          },
+        ],
+      });
+    });
+
+    it("owner が別の owner を member に変更できること（owner が2人以上いる場合）", async () => {
+      const updateWhere = vi.fn().mockResolvedValue(undefined);
+      const updateSet = vi.fn(() => ({
+        where: updateWhere,
+      }));
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+            {
+              id: 'membership-2',
+              userId: 'user-2',
+              userName: 'Member User',
+              userEmail: 'member@example.com',
+              displayName: null,
+              role: 'owner' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        update: vi.fn(() => ({
+          set: updateSet,
+        })),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await changeMemberRole({
+        headers,
+        slug,
+        targetUserId: 'user-2',
+        newRole: 'member',
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        members: [
+          members[0],
+          {
+            ...members[1],
+            role: 'member',
+          },
+        ],
+      });
+    });
+
+    it('owner が自分自身を member に変更できること（owner が2人以上いる場合）', async () => {
+      const updateWhere = vi.fn().mockResolvedValue(undefined);
+      const updateSet = vi.fn(() => ({
+        where: updateWhere,
+      }));
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+            {
+              id: 'membership-2',
+              userId: 'user-2',
+              userName: 'Co Owner User',
+              userEmail: 'co-owner@example.com',
+              displayName: '共同オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        update: vi.fn(() => ({
+          set: updateSet,
+        })),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'user-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await changeMemberRole({
+        headers,
+        slug,
+        targetUserId: 'user-1',
+        newRole: 'member',
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        members: [
+          {
+            ...members[0],
+            role: 'member',
+          },
+          {
+            id: 'membership-2',
+            userId: 'user-2',
+            userName: 'Co Owner User',
+            userEmail: 'co-owner@example.com',
+            displayName: '共同オーナー',
+            role: 'owner',
+            joinedAt,
+          },
+        ],
+      });
+      expect(tx.update).toHaveBeenCalledWith(membership);
+      expect(updateSet).toHaveBeenCalledWith({ role: 'member' });
+      expect(updateWhere).toHaveBeenCalledWith(
+        and(eq(membership.organizationId, organizationId), eq(membership.userId, 'user-1'))
+      );
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+
+    it('唯一の owner を member に変更しようとすると last-owner-protection を返し、更新しないこと', async () => {
+      const updateWhere = vi.fn().mockResolvedValue(undefined);
+      const updateSet = vi.fn(() => ({
+        where: updateWhere,
+      }));
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        update: vi.fn(() => ({
+          set: updateSet,
+        })),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'user-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await changeMemberRole({
+        headers,
+        slug,
+        targetUserId: 'user-1',
+        newRole: 'member',
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'last-owner-protection',
+      });
+      expect(tx.update).not.toHaveBeenCalled();
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+
+    it('member が changeMemberRole を呼ぶと insufficient-role を返し、更新処理へ進まないこと', async () => {
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: false,
+        reason: 'insufficient-role',
+      });
+
+      const result = await changeMemberRole({
+        headers,
+        slug,
+        targetUserId: 'user-2',
+        newRole: 'owner',
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'insufficient-role',
+      });
+      expect(db.transaction).not.toHaveBeenCalled();
       expect(getOrganizationMembers).not.toHaveBeenCalled();
     });
   });

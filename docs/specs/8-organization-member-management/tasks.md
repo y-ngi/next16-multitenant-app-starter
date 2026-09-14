@@ -24,7 +24,7 @@
   - _Boundary: organization-member-management service_
   - _Depends: 1.2_
 
-- [ ] 2.2 `changeMemberRole` を実装する（member↔owner の双方向、自分自身を対象とする呼び出しも含む）
+- [x] 2.2 `changeMemberRole` を実装する（member↔owner の双方向、自分自身を対象とする呼び出しも含む）
   - `requireOrganizationAccessBySlug`（`requiredRole: 'owner'`）で認可判定した後、1.2 の共有ガードを介して対象ユーザーのロールを更新する。対象ユーザーが呼び出し本人であっても同じ関数・同じガードを通す
   - 観測可能な完了条件: owner が member を owner に、owner を member にそれぞれ変更でき、更新後の `ViewableMember[]` が返る
   - _Requirements: 2.3, 2.4, 2.6, 4.1, 4.2_

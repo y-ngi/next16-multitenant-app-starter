@@ -247,3 +247,60 @@ export async function removeMember(
     members: toViewableMembersForRole(nextMembers, accessResult.role),
   };
 }
+
+export async function changeMemberRole(
+  input: MemberManagementActionInput & {
+    readonly targetUserId: string;
+    readonly newRole: OrganizationRole;
+  }
+): Promise<MemberMutationResult> {
+  const accessResult = await requireOrganizationAccessBySlug({
+    headers: input.headers,
+    slug: input.slug,
+    requiredRole: 'owner',
+  });
+
+  if (!accessResult.ok) {
+    return {
+      ok: false,
+      reason: accessResult.reason,
+    };
+  }
+
+  let nextMembers: readonly OwnerGuardMembership[] = [];
+  const guardResult = await ensureOwnerRemainsAfterChange({
+    organizationId: accessResult.organizationId,
+    simulateChange: (currentMembers) => {
+      nextMembers = currentMembers.map((member) =>
+        member.userId === input.targetUserId
+          ? {
+              ...member,
+              role: input.newRole,
+            }
+          : member
+      );
+
+      return nextMembers;
+    },
+    applyChange: async (tx) => {
+      await tx
+        .update(membership)
+        .set({ role: input.newRole })
+        .where(
+          and(
+            eq(membership.organizationId, accessResult.organizationId),
+            eq(membership.userId, input.targetUserId)
+          )
+        );
+    },
+  });
+
+  if (!guardResult.ok) {
+    return guardResult;
+  }
+
+  return {
+    ok: true,
+    members: toViewableMembersForRole(nextMembers, accessResult.role),
+  };
+}
