@@ -1,3 +1,4 @@
+import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/db', () => ({
@@ -16,18 +17,26 @@ vi.mock('@/lib/organization-lifecycle', () => ({
 
 import { requireOrganizationAccessBySlug } from '@/lib/organization-authz';
 import { db } from '@/db';
+import { membership } from '@/db/schema';
 import { getOrganizationMembers } from '@/lib/organization-lifecycle';
-import { ensureOwnerRemainsAfterChange, listMembersForViewer } from './organization-member-management';
+import { ensureOwnerRemainsAfterChange, listMembersForViewer, removeMember } from './organization-member-management';
 
 function createLockedMembershipSelectChain<T>(rows: T[]) {
   const promise = Promise.resolve(rows);
   const chain = {
     from: vi.fn(() => chain),
+    innerJoin: vi.fn(() => chain),
     where: vi.fn(() => chain),
     for: vi.fn(() => promise),
   };
 
   return chain;
+}
+
+function createDeleteChain() {
+  return {
+    where: vi.fn().mockResolvedValue(undefined),
+  };
 }
 
 describe('organization-member-management', () => {
@@ -281,6 +290,7 @@ describe('organization-member-management', () => {
         });
         const chain = {
           from: vi.fn(() => chain),
+          innerJoin: vi.fn(() => chain),
           where: vi.fn(() => chain),
           for: vi.fn(() => {
             callOrder.push('for-update');
@@ -322,6 +332,176 @@ describe('organization-member-management', () => {
         ok: true,
       });
       expect(callOrder).toEqual(['select', 'for-update', 'lock-resolved', 'apply-change']);
+    });
+  });
+
+  describe('removeMember', () => {
+    it('owner が member を削除すると所属を削除し、更新後の members を返すこと', async () => {
+      const deleteChain = createDeleteChain();
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+            {
+              id: 'membership-2',
+              userId: 'user-2',
+              userName: 'Member User',
+              userEmail: 'member@example.com',
+              displayName: null,
+              role: 'member' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        delete: vi.fn(() => deleteChain),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await removeMember({ headers, slug, targetUserId: 'user-2' });
+
+      expect(requireOrganizationAccessBySlug).toHaveBeenCalledWith({
+        headers,
+        slug,
+        requiredRole: 'owner',
+      });
+      expect(tx.delete).toHaveBeenCalledWith(membership);
+      expect(deleteChain.where).toHaveBeenCalledWith(
+        and(eq(membership.organizationId, organizationId), eq(membership.userId, 'user-2'))
+      );
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        ok: true,
+        members: [members[0]],
+      });
+    });
+
+    it('削除コミット後の再取得失敗で ok:false に降格させず、既知のメンバー一覧で成功を返すこと', async () => {
+      const deleteChain = createDeleteChain();
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+            {
+              id: 'membership-2',
+              userId: 'user-2',
+              userName: 'Member User',
+              userEmail: 'member@example.com',
+              displayName: null,
+              role: 'member' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        delete: vi.fn(() => deleteChain),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+      vi.mocked(getOrganizationMembers).mockResolvedValueOnce({
+        ok: false,
+        error: 'post-commit fetch failed',
+      });
+
+      const result = await removeMember({ headers, slug, targetUserId: 'user-2' });
+
+      expect(result).toEqual({
+        ok: true,
+        members: [members[0]],
+      });
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+
+    it('member が removeMember を呼ぶと insufficient-role を返し、削除処理へ進まないこと', async () => {
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: false,
+        reason: 'insufficient-role',
+      });
+
+      const result = await removeMember({ headers, slug, targetUserId: 'user-2' });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'insufficient-role',
+      });
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+
+    it('唯一の owner を削除しようとすると last-owner-protection を返すこと', async () => {
+      const deleteChain = createDeleteChain();
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        delete: vi.fn(() => deleteChain),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0])
+      );
+
+      const result = await removeMember({ headers, slug, targetUserId: 'user-1' });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'last-owner-protection',
+      });
+      expect(tx.delete).not.toHaveBeenCalled();
+      expect(getOrganizationMembers).not.toHaveBeenCalled();
     });
   });
 });

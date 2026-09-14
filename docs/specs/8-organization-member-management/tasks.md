@@ -17,7 +17,7 @@
   - _Depends: 1.1_
 
 - [ ] 2. Core: メンバー・招待に対するミューテーション操作
-- [ ] 2.1 `removeMember` を実装する
+- [x] 2.1 `removeMember` を実装する
   - `requireOrganizationAccessBySlug`（`requiredRole: 'owner'`）で認可判定した後、1.2 の共有ガードを介して対象ユーザーの所属を削除する
   - 観測可能な完了条件: owner が対象組織の member を削除すると、その所属が削除され、更新後の `ViewableMember[]` が返る
   - _Requirements: 2.2, 2.6_
