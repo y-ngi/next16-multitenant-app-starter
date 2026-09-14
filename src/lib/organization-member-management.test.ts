@@ -1802,6 +1802,7 @@ describe('organization-member-management', () => {
     it('owner が組織を削除すると成功し、対象 organization 行の削除を実行すること', async () => {
       const membershipLockChain = createLockedMembershipSelectChain([
         {
+          userId: 'viewer-1',
           role: 'owner' as const,
         },
       ]);
@@ -1833,12 +1834,45 @@ describe('organization-member-management', () => {
         requiredRole: 'owner',
       });
       expect(membershipLockChain.from).toHaveBeenCalledWith(membership);
-      expect(membershipLockChain.where).toHaveBeenCalledWith(
-        and(eq(membership.organizationId, organizationId), eq(membership.userId, 'viewer-1'))
-      );
+      expect(membershipLockChain.where).toHaveBeenCalledWith(eq(membership.organizationId, organizationId));
       expect(tx.delete).toHaveBeenCalledWith(organization);
       expect(deleteChain.where).toHaveBeenCalledWith(eq(organization.id, organizationId));
       expect(deleteChain.returning).toHaveBeenCalledWith({ id: organization.id });
+      expect(result).toEqual({ ok: true });
+    });
+
+    it('組織内の全 membership 行をロックし、他メンバーの行に紛れていても acting owner を特定できること（cascade削除とのデッドロック回避）', async () => {
+      const membershipLockChain = createLockedMembershipSelectChain([
+        { userId: 'member-1', role: 'member' as const },
+        { userId: 'viewer-1', role: 'owner' as const },
+        { userId: 'member-2', role: 'member' as const },
+      ]);
+      const deleteChain = createDeleteReturningChain([{ id: organizationId }]);
+      const tx = {
+        select: vi.fn().mockReturnValueOnce(asDbSelectReturn(membershipLockChain)),
+        delete: vi.fn(() => ({
+          where: deleteChain.where,
+        })),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'viewer-1',
+        role: 'owner',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(asDbTransaction(tx))
+      );
+
+      const result = await deleteOrganization({ headers, slug });
+
+      // organizationId のみで絞り込み、組織内の全 membership 行をロックすることを確認する
+      // （ensureOwnerRemainsAfterChange と同じロック範囲にすることで、cascade削除との
+      // ロック順序不一致によるデッドロックを回避する）
+      expect(membershipLockChain.where).toHaveBeenCalledWith(eq(membership.organizationId, organizationId));
       expect(result).toEqual({ ok: true });
     });
 
@@ -1862,6 +1896,7 @@ describe('organization-member-management', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const membershipLockChain = createLockedMembershipSelectChain([
         {
+          userId: 'viewer-1',
           role: 'owner' as const,
         },
       ]);
@@ -1905,6 +1940,7 @@ describe('organization-member-management', () => {
     it('ロック取得時点で acting owner が owner でなくなっていた場合は insufficient-role を返すこと', async () => {
       const membershipLockChain = createLockedMembershipSelectChain([
         {
+          userId: 'viewer-1',
           role: 'member' as const,
         },
       ]);
@@ -1937,6 +1973,7 @@ describe('organization-member-management', () => {
     it('削除件数が 0 件なら organization-not-found を返すこと', async () => {
       const membershipLockChain = createLockedMembershipSelectChain([
         {
+          userId: 'viewer-1',
           role: 'owner' as const,
         },
       ]);

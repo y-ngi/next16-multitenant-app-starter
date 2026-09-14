@@ -598,23 +598,23 @@ export async function deleteOrganization(
   try {
     return await runInMemberManagementTransaction(async (tx) => {
       if (canReverifyOwnership) {
-        const actingMembershipsQuery = tx
+        const organizationMembershipsQuery = tx
           .select({
+            userId: membership.userId,
             role: membership.role,
           })
           .from(membership)
-          .where(
-            and(
-              eq(membership.organizationId, accessResult.organizationId),
-              eq(membership.userId, accessResult.userId)
-            )
-          );
+          .where(eq(membership.organizationId, accessResult.organizationId));
 
-        const actingMemberships = await executeLockingSelect(
-          actingMembershipsQuery as unknown as LockableQuery<{ role: OrganizationRole }[]>
+        const organizationMemberships = await executeLockingSelect(
+          organizationMembershipsQuery as unknown as LockableQuery<
+            { userId: string; role: OrganizationRole }[]
+          >
         );
 
-        const actingMembership = actingMemberships[0];
+        const actingMembership = organizationMemberships.find(
+          (member) => member.userId === accessResult.userId
+        );
 
         if (!actingMembership || actingMembership.role !== 'owner') {
           return {
