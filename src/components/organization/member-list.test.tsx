@@ -1,244 +1,194 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MemberMutationResult, ViewableMember } from '@/lib/organization-member-management';
 import { MemberList } from './member-list';
 
-// Mock the server actions
-vi.mock('@/app/actions/organization', () => ({
-  getOrganizationMembersAction: vi.fn(),
+const { mockRefresh, mockConfirm, mockToastError } = vi.hoisted(() => ({
+  mockRefresh: vi.fn(),
+  mockConfirm: vi.fn<(message?: string) => boolean>(),
+  mockToastError: vi.fn(),
 }));
 
-// Mock sonner toast
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    refresh: mockRefresh,
+  }),
+}));
+
 vi.mock('sonner', () => ({
   toast: {
-    error: vi.fn(),
+    error: mockToastError,
   },
 }));
 
-import { getOrganizationMembersAction } from '@/app/actions/organization';
-
 describe('MemberList', () => {
+  const createMember = (overrides: Partial<ViewableMember>): ViewableMember => ({
+    id: overrides.id ?? 'membership-1',
+    userId: overrides.userId ?? 'user-1',
+    userName: overrides.userName ?? 'user-1',
+    userEmail: overrides.userEmail,
+    displayName: overrides.displayName ?? null,
+    role: overrides.role ?? 'member',
+    joinedAt: overrides.joinedAt ?? new Date('2024-01-01T00:00:00.000Z'),
+  });
+
+  const members = [
+    createMember({
+      id: 'membership-owner-self',
+      userId: 'viewer-1',
+      userName: 'owner-self',
+      userEmail: 'owner-self@example.com',
+      displayName: '自分',
+      role: 'owner',
+      joinedAt: new Date('2024-01-01T00:00:00.000Z'),
+    }),
+    createMember({
+      id: 'membership-member-1',
+      userId: 'member-1',
+      userName: 'member-user',
+      userEmail: 'member-1@example.com',
+      displayName: '一般メンバー',
+      role: 'member',
+      joinedAt: new Date('2024-01-02T00:00:00.000Z'),
+    }),
+    createMember({
+      id: 'membership-owner-2',
+      userId: 'owner-2',
+      userName: 'owner-user',
+      userEmail: 'owner-2@example.com',
+      displayName: '別のオーナー',
+      role: 'owner',
+      joinedAt: new Date('2024-01-03T00:00:00.000Z'),
+    }),
+  ] as const satisfies readonly ViewableMember[];
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('confirm', mockConfirm);
+    mockConfirm.mockReturnValue(true);
   });
 
-  it('読み込み中はスケルトンを表示すること', () => {
-    vi.mocked(getOrganizationMembersAction).mockImplementationOnce(
-      () => new Promise(() => {})
+  it('owner 視点ではメール付きの行と他メンバー向け操作ボタンを表示すること', () => {
+    render(
+      <MemberList
+        members={members}
+        viewerRole="owner"
+        viewerUserId="viewer-1"
+        onRemoveMember={vi.fn()}
+        onChangeRole={vi.fn()}
+      />
     );
 
-    const { container } = render(<MemberList organizationId="org-1" />);
+    expect(screen.getByText('owner-self@example.com')).toBeInTheDocument();
+    expect(screen.getByText('member-1@example.com')).toBeInTheDocument();
+    expect(screen.getByText('owner-2@example.com')).toBeInTheDocument();
 
-    const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
-    expect(skeletons.length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: '削除' })).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'owner に変更' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'member に変更' })).toBeInTheDocument();
   });
 
-  it('メンバー一覧を表示すること', async () => {
-    const mockMembers = [
-      {
-        id: 'mem-1',
-        userId: 'user-1',
-        userName: 'Owner User',
-        userEmail: 'owner@example.com',
-        displayName: 'Owner',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-      {
-        id: 'mem-2',
-        userId: 'user-2',
-        userName: 'Member User',
-        userEmail: 'member@example.com',
-        displayName: 'Member',
-        role: 'member' as const,
-        joinedAt: new Date('2024-01-02'),
-      },
-    ];
+  it('owner 視点でも自分の行には操作ボタンを表示しないこと', () => {
+    render(
+      <MemberList
+        members={members}
+        viewerRole="owner"
+        viewerUserId="viewer-1"
+        onRemoveMember={vi.fn()}
+        onChangeRole={vi.fn()}
+      />
+    );
 
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
-      ok: true,
-      members: mockMembers,
-    });
-
-    render(<MemberList organizationId="org-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByText('owner@example.com')).toBeInTheDocument();
-      expect(screen.getByText('member@example.com')).toBeInTheDocument();
-    });
+    const ownCard = screen.getByText('自分').closest('[data-slot="card"]');
+    expect(ownCard).not.toBeNull();
+    expect(within(ownCard as HTMLElement).queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+    expect(
+      within(ownCard as HTMLElement).queryByRole('button', { name: 'owner に変更' })
+    ).not.toBeInTheDocument();
+    expect(
+      within(ownCard as HTMLElement).queryByRole('button', { name: 'member に変更' })
+    ).not.toBeInTheDocument();
   });
 
-  it('メンバーの表示名を表示すること', async () => {
-    const mockMembers = [
-      {
-        id: 'mem-1',
-        userId: 'user-1',
-        userName: 'Owner User',
-        userEmail: 'owner@example.com',
-        displayName: 'Owner Display',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
+  it('member 視点ではメールと操作ボタンを表示しないこと', () => {
+    const memberViewMembers = [
+      createMember({
+        id: 'membership-owner-self',
+        userId: 'viewer-1',
+        userName: 'owner-self',
+        displayName: '自分',
+        role: 'member',
+      }),
+      createMember({
+        id: 'membership-member-1',
+        userId: 'member-1',
+        userName: 'member-user',
+        displayName: '別メンバー',
+        role: 'owner',
+      }),
+    ] as const satisfies readonly ViewableMember[];
 
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
-      ok: true,
-      members: mockMembers,
-    });
+    render(
+      <MemberList
+        members={memberViewMembers}
+        viewerRole="member"
+        viewerUserId="viewer-1"
+        onRemoveMember={vi.fn()}
+        onChangeRole={vi.fn()}
+      />
+    );
 
-    render(<MemberList organizationId="org-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Owner Display')).toBeInTheDocument();
-    });
+    expect(screen.queryByText('owner-self@example.com')).not.toBeInTheDocument();
+    expect(screen.queryByText('member-1@example.com')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'owner に変更' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'member に変更' })).not.toBeInTheDocument();
   });
 
-  it('オーナーバッジを表示すること', async () => {
-    const mockMembers = [
-      {
-        id: 'mem-1',
-        userId: 'user-1',
-        userName: 'Owner User',
-        userEmail: 'owner@example.com',
-        displayName: 'Owner',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
+  it('削除とロール変更の成功時に props の操作関数を呼び router.refresh すること', async () => {
+    const removeResult: MemberMutationResult = { ok: true, members };
+    const changeRoleResult: MemberMutationResult = { ok: true, members };
+    const onRemoveMember = vi.fn().mockResolvedValue(removeResult);
+    const onChangeRole = vi.fn().mockResolvedValue(changeRoleResult);
 
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
-      ok: true,
-      members: mockMembers,
-    });
+    render(
+      <MemberList
+        members={members}
+        viewerRole="owner"
+        viewerUserId="viewer-1"
+        onRemoveMember={onRemoveMember}
+        onChangeRole={onChangeRole}
+      />
+    );
 
-    render(<MemberList organizationId="org-1" />);
+    fireEvent.click(screen.getAllByRole('button', { name: '削除' })[0]);
 
     await waitFor(() => {
-      const ownerBadge = screen.getByText('オーナー');
-      expect(ownerBadge).toBeInTheDocument();
-    });
-  });
-
-  it('メンバーバッジを表示すること', async () => {
-    const mockMembers = [
-      {
-        id: 'mem-2',
-        userId: 'user-2',
-        userName: 'Member User',
-        userEmail: 'member@example.com',
-        displayName: 'Member',
-        role: 'member' as const,
-        joinedAt: new Date('2024-01-02'),
-      },
-    ];
-
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
-      ok: true,
-      members: mockMembers,
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(onRemoveMember).toHaveBeenCalledWith('member-1');
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
     });
 
-    render(<MemberList organizationId="org-1" />);
+    fireEvent.click(screen.getByRole('button', { name: 'owner に変更' }));
 
     await waitFor(() => {
-      const memberBadge = screen.getByText('メンバー');
-      expect(memberBadge).toBeInTheDocument();
+      expect(mockConfirm).toHaveBeenCalledTimes(2);
+      expect(onChangeRole).toHaveBeenCalledWith('member-1', 'owner');
+      expect(mockRefresh).toHaveBeenCalledTimes(2);
     });
   });
 
-  it('参加日時を表示すること', async () => {
-    const mockMembers = [
-      {
-        id: 'mem-1',
-        userId: 'user-1',
-        userName: 'Owner User',
-        userEmail: 'owner@example.com',
-        displayName: 'Owner',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
+  it('メンバーが空なら空状態を表示すること', () => {
+    render(
+      <MemberList
+        members={[]}
+        viewerRole="owner"
+        viewerUserId="viewer-1"
+        onRemoveMember={vi.fn()}
+        onChangeRole={vi.fn()}
+      />
+    );
 
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
-      ok: true,
-      members: mockMembers,
-    });
-
-    render(<MemberList organizationId="org-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/2024年1月1日/)).toBeInTheDocument();
-    });
-  });
-
-  it('エラーメッセージを表示すること', async () => {
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
-      ok: false,
-      error: 'メンバーの取得に失敗しました',
-    });
-
-    const { container } = render(<MemberList organizationId="org-1" />);
-
-    await waitFor(() => {
-      const errorCard = container.querySelector('.bg-red-50');
-      expect(errorCard).toBeInTheDocument();
-    });
-  });
-
-  it('メンバーが存在しない場合、空状態を表示すること', async () => {
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
-      ok: true,
-      members: [],
-    });
-
-    render(<MemberList organizationId="org-1" />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/メンバーがいません/)).toBeInTheDocument();
-    });
-  });
-
-  it('refreshKeyが変更されたときに再取得すること', async () => {
-    const mockMembers = [
-      {
-        id: 'mem-1',
-        userId: 'user-1',
-        userName: 'Owner User',
-        userEmail: 'owner@example.com',
-        displayName: 'Owner',
-        role: 'owner' as const,
-        joinedAt: new Date('2024-01-01'),
-      },
-    ];
-
-    vi.mocked(getOrganizationMembersAction).mockResolvedValue({
-      ok: true,
-      members: mockMembers,
-    });
-
-    const { rerender } = render(<MemberList organizationId="org-1" refreshKey={0} />);
-
-    await waitFor(() => {
-      expect(getOrganizationMembersAction).toHaveBeenCalledTimes(1);
-    });
-
-    rerender(<MemberList organizationId="org-1" refreshKey={1} />);
-
-    await waitFor(() => {
-      expect(getOrganizationMembersAction).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  it('エラーをトーストで表示すること', async () => {
-    const { toast } = await import('sonner');
-
-    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
-      ok: false,
-      error: 'アクセスが拒否されました',
-    });
-
-    render(<MemberList organizationId="org-1" />);
-
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith('アクセスが拒否されました');
-    });
+    expect(screen.getByText('メンバーがいません。メンバーを招待してください。')).toBeInTheDocument();
   });
 });

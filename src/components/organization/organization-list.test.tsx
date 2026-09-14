@@ -9,6 +9,12 @@ vi.mock('@/app/actions/organization', () => ({
   getInvitationsAction: vi.fn(),
 }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    refresh: vi.fn(),
+  }),
+}));
+
 // Mock sonner toast
 vi.mock('sonner', () => ({
   toast: {
@@ -18,24 +24,18 @@ vi.mock('sonner', () => ({
   },
 }));
 
-// Mock child components to avoid complex dependencies
-vi.mock('./member-list', () => ({
-  MemberList: ({ organizationId }: { organizationId: string }) => (
-    <div data-testid={`member-list-${organizationId}`}>Mock Member List</div>
-  ),
-}));
-
 vi.mock('./invitation-manager', () => ({
   InvitationManager: ({ organizationId }: { organizationId: string }) => (
     <div data-testid={`invitation-manager-${organizationId}`}>Mock Invitation Manager</div>
   ),
 }));
 
-import { getUserOrganizationsAction } from '@/app/actions/organization';
+import { getOrganizationMembersAction, getUserOrganizationsAction } from '@/app/actions/organization';
 
 describe('OrganizationList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getOrganizationMembersAction).mockReset();
   });
 
   it('読み込み中はスケルトンを表示すること', () => {
@@ -234,6 +234,20 @@ describe('OrganizationList', () => {
       ok: true,
       organizations: mockOrganizations,
     });
+    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
+      ok: true,
+      members: [
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          userName: 'member-user',
+          userEmail: 'member@example.com',
+          displayName: '表示メンバー',
+          role: 'member',
+          joinedAt: new Date('2024-01-03'),
+        },
+      ],
+    });
 
     render(<OrganizationList />);
 
@@ -241,17 +255,20 @@ describe('OrganizationList', () => {
       expect(screen.getByTestId('member-list-toggle-org-1')).toBeInTheDocument();
     });
 
-    // Initially, member list should not be visible
+    expect(getOrganizationMembersAction).not.toHaveBeenCalled();
     expect(screen.queryByTestId('member-list-org-1')).not.toBeInTheDocument();
 
-    // Click the member list button
     const memberListButton = screen.getByTestId('member-list-toggle-org-1');
     fireEvent.click(memberListButton);
 
-    // Now member list should be visible
     await waitFor(() => {
+      expect(getOrganizationMembersAction).toHaveBeenCalledWith('org-1');
       expect(screen.getByTestId('member-list-org-1')).toBeInTheDocument();
+      expect(screen.getByText('表示メンバー')).toBeInTheDocument();
     });
+
+    expect(screen.queryByText('member@example.com')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
   });
 
   it('メンバー一覧ボタンをもう一度クリックするとメンバーリストが閉じること', async () => {
@@ -269,6 +286,20 @@ describe('OrganizationList', () => {
       ok: true,
       organizations: mockOrganizations,
     });
+    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
+      ok: true,
+      members: [
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          userName: 'member-user',
+          userEmail: 'member@example.com',
+          displayName: '表示メンバー',
+          role: 'member',
+          joinedAt: new Date('2024-01-03'),
+        },
+      ],
+    });
 
     render(<OrganizationList />);
 
@@ -278,13 +309,11 @@ describe('OrganizationList', () => {
 
     const memberListButton = screen.getByTestId('member-list-toggle-org-1');
 
-    // Click to open
     fireEvent.click(memberListButton);
     await waitFor(() => {
       expect(screen.getByTestId('member-list-org-1')).toBeInTheDocument();
     });
 
-    // Click to close
     fireEvent.click(memberListButton);
     await waitFor(() => {
       expect(screen.queryByTestId('member-list-org-1')).not.toBeInTheDocument();
@@ -305,6 +334,20 @@ describe('OrganizationList', () => {
     vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
       ok: true,
       organizations: mockOrganizations,
+    });
+    vi.mocked(getOrganizationMembersAction).mockResolvedValueOnce({
+      ok: true,
+      members: [
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          userName: 'member-user',
+          userEmail: 'member@example.com',
+          displayName: '表示メンバー',
+          role: 'member',
+          joinedAt: new Date('2024-01-03'),
+        },
+      ],
     });
 
     render(<OrganizationList />);
@@ -394,16 +437,13 @@ describe('OrganizationList', () => {
       expect(screen.getByTestId('member-list-toggle-org-1')).toBeInTheDocument();
     });
 
-    // Open member list
     fireEvent.click(screen.getByTestId('member-list-toggle-org-1'));
     await waitFor(() => {
       expect(screen.getByTestId('member-list-org-1')).toBeInTheDocument();
     });
 
-    // Open invitation manager
     fireEvent.click(screen.getByTestId('invitation-toggle-org-1'));
 
-    // Member list should be closed
     await waitFor(() => {
       expect(screen.queryByTestId('member-list-org-1')).not.toBeInTheDocument();
       expect(screen.getByTestId('invitation-manager-org-1')).toBeInTheDocument();

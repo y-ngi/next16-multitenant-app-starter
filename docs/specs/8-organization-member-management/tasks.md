@@ -72,7 +72,7 @@
   - _Depends: 2.1, 2.2, 2.3, 2.4, 2.5_
 
 - [ ] 4. Core: フロントエンドコンポーネントの実装
-- [ ] 4.1 (P) `MemberList` をロール別表示・自分の行の操作非表示に対応させる
+- [x] 4.1 (P) `MemberList` をロール別表示・自分の行の操作非表示に対応させる
   - 既存の内部フェッチ（`getOrganizationMembersAction` の呼び出しと `useEffect`）を削除し、`members` / `viewerRole` / `viewerUserId` / `onRemoveMember` / `onChangeRole` を props として受け取る表示コンポーネントへ変更する
   - `member.userId === viewerUserId` の行では削除・ロール変更ボタンを描画しない。`userEmail` が存在する行のみメールアドレスを表示する
   - 削除・ロール変更成功後は一覧データを自身の state として保持せず、`router.refresh()` を呼び出して親の Server Component（`MembersPage`）から最新の `members` props を再取得する
@@ -140,3 +140,4 @@
 
 ## Implementation Notes
 - Task 2.6/2.7: `removeMember`/`changeMemberRole`/`leaveOrganization`/`cancelInvitation`/`deleteOrganization` の service-layer ユニットテストは、TDDで各関数実装（2.1-2.5）と同時に追加済みだったため、追加実装は不要と判断（レビューで service 境界内の網羅性を確認済み）。招待一覧表示・組織コンテキスト遷移・cascade実効性の検証は frontend(4.x/5.x)/統合テスト(6.2)の責務であり、2.6/2.7 の境界外。
+- Task 4.1: `organization-list.tsx`（`/dashboard/personal` の概要表示、本specの境界外）が旧 `MemberList` props に依存していたため、design 契約の単一化に伴い read-only 表示（`viewerRole:'member'` 固定、操作ボタン非表示）として合わせて更新した。

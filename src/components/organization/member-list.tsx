@@ -1,90 +1,101 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { getOrganizationMembersAction } from '@/app/actions/organization';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-
-export interface OrganizationMember {
-  id: string;
-  userId: string;
-  userName: string;
-  userEmail: string;
-  displayName?: string | null;
-  role: 'owner' | 'member';
-  joinedAt: Date;
-}
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import type {
+  MemberManagementFailureReason,
+  MemberMutationResult,
+  OrganizationRole,
+  ViewableMember,
+} from '@/lib/organization-member-management';
 
 export interface MemberListProps {
-  organizationId: string;
-  refreshKey?: number;
+  readonly members: readonly ViewableMember[];
+  readonly viewerRole: OrganizationRole;
+  readonly viewerUserId: string;
+  readonly onRemoveMember: (targetUserId: string) => Promise<MemberMutationResult>;
+  readonly onChangeRole: (
+    targetUserId: string,
+    newRole: OrganizationRole
+  ) => Promise<MemberMutationResult>;
 }
 
-export function MemberList({ organizationId, refreshKey }: MemberListProps) {
-  const [members, setMembers] = useState<OrganizationMember[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const requestIdRef = useRef<number>(0);
+function getMemberMutationErrorMessage(reason: MemberManagementFailureReason): string {
+  switch (reason) {
+    case 'last-owner-protection':
+      return '少なくとも1人の owner が必要です。別のメンバーを owner に変更してください';
+    case 'unauthenticated':
+    case 'insufficient-role':
+    case 'not-member':
+      return '権限がありません';
+    default:
+      return '操作が完了しませんでした。もう一度お試しください';
+  }
+}
 
-  useEffect(() => {
-    const fetchMembers = async () => {
-      // Increment request ID to track the latest request
-      const currentRequestId = ++requestIdRef.current;
+export function MemberList({
+  members,
+  viewerRole,
+  viewerUserId,
+  onRemoveMember,
+  onChangeRole,
+}: MemberListProps) {
+  const router = useRouter();
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
 
-      setIsLoading(true);
-      setError(null);
+  const canManageMembers = viewerRole === 'owner';
 
-      try {
-        const result = await getOrganizationMembersAction(organizationId);
+  const handleRemoveMember = async (member: ViewableMember) => {
+    if (!window.confirm(`「${member.displayName || member.userName}」を削除しますか？`)) {
+      return;
+    }
 
-        // Only update state if this is still the latest request
-        if (currentRequestId === requestIdRef.current) {
-          if (result.ok && result.members) {
-            setMembers(result.members as OrganizationMember[]);
-          } else {
-            setError(result.error || 'メンバーの取得に失敗しました');
-            toast.error(result.error || 'メンバーの取得に失敗しました');
-          }
-        }
-      } catch (err) {
-        // Only update state if this is still the latest request
-        if (currentRequestId === requestIdRef.current) {
-          const message = err instanceof Error ? err.message : '予期しないエラーが発生しました';
-          setError(message);
-          toast.error(message);
-        }
-      } finally {
-        // Only update loading state if this is still the latest request
-        if (currentRequestId === requestIdRef.current) {
-          setIsLoading(false);
-        }
+    setPendingAction(`remove:${member.userId}`);
+
+    try {
+      const result = await onRemoveMember(member.userId);
+
+      if (!result.ok) {
+        toast.error(getMemberMutationErrorMessage(result.reason));
+        return;
       }
-    };
 
-    fetchMembers();
-  }, [organizationId, refreshKey]);
+      router.refresh();
+    } catch {
+      toast.error('操作が完了しませんでした。もう一度お試しください');
+    } finally {
+      setPendingAction(null);
+    }
+  };
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        {[...Array(3)].map((_, i) => (
-          <Skeleton key={i} className="h-24 rounded-lg" />
-        ))}
-      </div>
-    );
-  }
+  const handleChangeRole = async (member: ViewableMember, newRole: OrganizationRole) => {
+    const roleLabel = newRole === 'owner' ? 'owner' : 'member';
 
-  if (error) {
-    return (
-      <Card className="border-red-200 bg-red-50">
-        <CardContent className="pt-6">
-          <p className="text-sm text-red-700">{error}</p>
-        </CardContent>
-      </Card>
-    );
-  }
+    if (!window.confirm(`「${member.displayName || member.userName}」を ${roleLabel} に変更しますか？`)) {
+      return;
+    }
+
+    setPendingAction(`role:${member.userId}:${newRole}`);
+
+    try {
+      const result = await onChangeRole(member.userId, newRole);
+
+      if (!result.ok) {
+        toast.error(getMemberMutationErrorMessage(result.reason));
+        return;
+      }
+
+      router.refresh();
+    } catch {
+      toast.error('操作が完了しませんでした。もう一度お試しください');
+    } finally {
+      setPendingAction(null);
+    }
+  };
 
   if (members.length === 0) {
     return (
@@ -100,34 +111,66 @@ export function MemberList({ organizationId, refreshKey }: MemberListProps) {
 
   return (
     <div className="space-y-4">
-      {members.map((member) => (
-        <Card key={member.id} className="hover:shadow-md transition-shadow">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between">
-              <div>
-                <CardTitle className="text-lg">
-                  {member.displayName || member.userName}
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  {member.userEmail}
-                </CardDescription>
+      {members.map((member) => {
+        const isViewerRow = member.userId === viewerUserId;
+        const nextRole: OrganizationRole = member.role === 'owner' ? 'member' : 'owner';
+        const roleChangeLabel = nextRole === 'owner' ? 'owner に変更' : 'member に変更';
+        const isRemoving = pendingAction === `remove:${member.userId}`;
+        const isChangingRole = pendingAction === `role:${member.userId}:${nextRole}`;
+
+        return (
+          <Card key={member.id} className="transition-shadow hover:shadow-md">
+            <CardHeader className="gap-3 pb-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <CardTitle className="text-lg">{member.displayName || member.userName}</CardTitle>
+                  {member.userEmail ? (
+                    <CardDescription className="break-all text-xs text-muted-foreground">
+                      {member.userEmail}
+                    </CardDescription>
+                  ) : null}
+                </div>
+                <Badge variant={member.role === 'owner' ? 'default' : 'secondary'}>
+                  {member.role === 'owner' ? 'オーナー' : 'メンバー'}
+                </Badge>
               </div>
-              <Badge variant={member.role === 'owner' ? 'default' : 'secondary'}>
-                {member.role === 'owner' ? 'オーナー' : 'メンバー'}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">
-              {new Date(member.joinedAt).toLocaleDateString('ja-JP', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })} に参加
-            </p>
-          </CardContent>
-        </Card>
-      ))}
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                {new Date(member.joinedAt).toLocaleDateString('ja-JP', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}{' '}
+                に参加
+              </p>
+
+              {canManageMembers && !isViewerRow ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={pendingAction !== null}
+                    onClick={() => handleChangeRole(member, nextRole)}
+                  >
+                    {isChangingRole ? '変更中...' : roleChangeLabel}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={pendingAction !== null}
+                    onClick={() => handleRemoveMember(member)}
+                  >
+                    {isRemoving ? '削除中...' : '削除'}
+                  </Button>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
