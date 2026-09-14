@@ -1386,7 +1386,7 @@ describe('organization-member-management', () => {
 
   describe('leaveOrganization', () => {
     it('owner が複数 owner の組織を自己脱退すると成功し、自身の所属を削除すること', async () => {
-      const deleteChain = createDeleteChain();
+      const deleteChain = createDeleteReturningChain([{ id: 'membership-1' }]);
       const tx = {
         select: vi.fn(() =>
           createLockedMembershipSelectChain([
@@ -1410,7 +1410,9 @@ describe('organization-member-management', () => {
             },
           ])
         ),
-        delete: vi.fn(() => deleteChain),
+        delete: vi.fn(() => ({
+          where: deleteChain.where,
+        })),
       };
 
       vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
@@ -1482,7 +1484,7 @@ describe('organization-member-management', () => {
     });
 
     it('member が自己脱退できること', async () => {
-      const deleteChain = createDeleteChain();
+      const deleteChain = createDeleteReturningChain([{ id: 'membership-2' }]);
       const tx = {
         select: vi.fn(() =>
           createLockedMembershipSelectChain([
@@ -1506,7 +1508,9 @@ describe('organization-member-management', () => {
             },
           ])
         ),
-        delete: vi.fn(() => deleteChain),
+        delete: vi.fn(() => ({
+          where: deleteChain.where,
+        })),
       };
 
       vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
@@ -1529,6 +1533,56 @@ describe('organization-member-management', () => {
         and(eq(membership.organizationId, organizationId), eq(membership.userId, 'user-2'))
       );
       expect(getOrganizationMembers).not.toHaveBeenCalled();
+    });
+
+    it('削除対象の membership が既に存在しない場合（並行削除等）は not-found を返すこと', async () => {
+      const deleteChain = createDeleteReturningChain([]);
+      const tx = {
+        select: vi.fn(() =>
+          createLockedMembershipSelectChain([
+            {
+              id: 'membership-1',
+              userId: 'user-1',
+              userName: 'Owner User',
+              userEmail: 'owner@example.com',
+              displayName: 'オーナー',
+              role: 'owner' as const,
+              joinedAt,
+            },
+            {
+              id: 'membership-2',
+              userId: 'user-2',
+              userName: 'Member User',
+              userEmail: 'member@example.com',
+              displayName: null,
+              role: 'member' as const,
+              joinedAt,
+            },
+          ])
+        ),
+        delete: vi.fn(() => ({
+          where: deleteChain.where,
+        })),
+      };
+
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'user-2',
+        role: 'member',
+      });
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
+        callback(asDbTransaction(tx))
+      );
+
+      const result = await leaveOrganization({ headers, slug });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'not-found',
+      });
     });
 
     it('非メンバーは認可失敗理由をそのまま返し、削除処理へ進まないこと', async () => {

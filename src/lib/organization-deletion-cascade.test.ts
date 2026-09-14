@@ -1,4 +1,9 @@
 // @vitest-environment node
+//
+// NOTE: このテストは `@/db` を完全にモック化した「削除オーケストレーション」の検証であり、
+// 実PostgreSQL接続によるFK ON DELETE CASCADE挙動を検証する統合テストではない
+// （本リポジトリには実DB接続を伴う統合テスト基盤が存在しないため）。
+// ファイル名から `.integration` を除いているのはこの区別を明確にするため。
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -105,7 +110,7 @@ async function findInvitationsByOrganizationId(organizationId: string) {
     .limit(10);
 }
 
-describe('organization deletion cascade integration', () => {
+describe('organization deletion cascade orchestration (mocked db)', () => {
   const headers = new Headers({ authorization: 'Bearer test' });
   const organizationId = 'org-1';
   const slug = 'acme-inc';

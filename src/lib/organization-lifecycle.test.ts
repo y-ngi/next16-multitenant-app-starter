@@ -86,18 +86,6 @@ function mockSelectRejectOnce(error: Error) {
   vi.mocked(db.select).mockReturnValueOnce(createSelectChain([], error) as any);
 }
 
-function mockUpdateOnce(result: unknown = undefined, onSet?: (values: any) => void) {
-  const where = vi.fn().mockResolvedValue(result);
-  const set = vi.fn().mockImplementation((inputValues: any) => {
-    onSet?.(inputValues);
-    return { where };
-  });
-
-  vi.mocked(db.update).mockReturnValueOnce({ set } as any);
-
-  return { set, where };
-}
-
 describe('Organization Lifecycle', () => {
   const headers = new Headers({ authorization: '******' });
   const userId = 'user-123';
@@ -1399,7 +1387,12 @@ describe('Organization Lifecycle', () => {
         updatedAt: now,
       }]);
 
-      mockUpdateOnce([]);
+      const updateSet = vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: invitationId }]),
+        }),
+      });
+      vi.mocked(db.update).mockReturnValueOnce({ set: updateSet } as any);
 
       const result = await respondToInvitation({
         headers,
@@ -1411,6 +1404,49 @@ describe('Organization Lifecycle', () => {
       expect(result.error).toBeUndefined();
       expect(db.update).toHaveBeenCalled();
       expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('拒否処理のトランザクション実行時点で招待が既に pending でなくなっていた場合（並行キャンセル等）、失敗を返すこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: { id: userId, email: inviteeEmail },
+        session: { id: 'sess-1' },
+      } as any);
+
+      mockSelectOnce([{
+        id: invitationId,
+        organizationId,
+        email: inviteeEmail,
+        token,
+        status: 'pending',
+        expiresAt: futureDate,
+        role: 'member',
+        inviterId,
+        createdAt: now,
+        updatedAt: now,
+      }]);
+
+      const updateSet = vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([]),
+        }),
+      });
+      vi.mocked(db.update).mockReturnValueOnce({ set: updateSet } as any);
+      // 再検証読み取り：既に canceled に更新されている
+      mockSelectOnce([{ status: 'canceled', expiresAt: futureDate }]);
+
+      const result = await respondToInvitation({
+        headers,
+        token,
+        accept: false,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: 'Invitation has already been used',
+      });
     });
 
     it('承諾時にメール送信失敗してもエラーにしないこと', async () => {

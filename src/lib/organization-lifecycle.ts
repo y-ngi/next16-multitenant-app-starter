@@ -785,14 +785,43 @@ export async function respondToInvitation(
         ok: true,
       };
     } else {
-      // 8. Handle rejection - just update invitation status
-      await db
+      // 8. Handle rejection - update invitation status conditionally on it
+      // still being pending and unexpired at commit time. Without this
+      // condition, a concurrent cancelInvitation (service:
+      // organization-member-management) that commits 'canceled' between the
+      // initial read above and this update would be silently overwritten
+      // back to 'rejected' by an unconditional update keyed only on `id`.
+      const rejectedAt = new Date();
+      const rejectedInvitations = await db
         .update(invitation)
         .set({
           status: 'rejected' as InvitationStatus,
-          updatedAt: new Date(),
+          updatedAt: rejectedAt,
         })
-        .where(eq(invitation.id, inv.id));
+        .where(
+          and(
+            eq(invitation.id, inv.id),
+            eq(invitation.status, 'pending'),
+            gt(invitation.expiresAt, rejectedAt)
+          )
+        )
+        .returning({ id: invitation.id });
+
+      if (rejectedInvitations.length === 0) {
+        const [currentInvitation] = await db
+          .select({ status: invitation.status, expiresAt: invitation.expiresAt })
+          .from(invitation)
+          .where(eq(invitation.id, inv.id))
+          .limit(1);
+
+        return {
+          ok: false,
+          error:
+            currentInvitation && currentInvitation.expiresAt < rejectedAt
+              ? 'Invitation has expired'
+              : 'Invitation has already been used',
+        };
+      }
 
       return {
         ok: true,

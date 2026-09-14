@@ -302,7 +302,7 @@ describe('MembersPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('owner の招待取得に失敗しても InvitationManager を空配列で描画し続けること', async () => {
+  it('owner の招待取得に失敗した場合、InvitationManager の代わりにエラー表示を行うこと', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     mockResolveOrgContext.mockResolvedValueOnce({
@@ -341,18 +341,10 @@ describe('MembersPage', () => {
     render(page);
 
     expect(screen.getByTestId('member-list')).toBeInTheDocument();
-    expect(screen.getByTestId('invitation-manager')).toHaveAttribute('data-organization-id', 'org-1');
-    expect(screen.getByTestId('invitation-manager')).toHaveAttribute('data-invitation-count', '0');
-    expect(screen.getByTestId('invitation-manager')).toHaveAttribute(
-      'data-has-cancel-invitation',
-      'yes'
-    );
-    expect(screen.getByLabelText('メールアドレス')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '送信' })).toBeInTheDocument();
-    expect(screen.getByText('招待はまだありません')).toBeInTheDocument();
+    expect(screen.queryByTestId('invitation-manager')).not.toBeInTheDocument();
     expect(
-      screen.queryByText('招待一覧を取得できませんでした。時間をおいて再読み込みしてください。')
-    ).not.toBeInTheDocument();
+      screen.getByText('招待一覧を取得できませんでした。時間をおいて再読み込みしてください。')
+    ).toBeInTheDocument();
 
     consoleErrorSpy.mockRestore();
   });

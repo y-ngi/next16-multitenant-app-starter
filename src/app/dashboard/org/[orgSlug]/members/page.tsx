@@ -59,6 +59,7 @@ export default async function MembersPage({ params }: MembersPageProps) {
   }
 
   let invitations: readonly InvitationRecord[] = [];
+  let invitationsFetchFailed = false;
 
   if (role === 'owner') {
     const invitationsResult = await getInvitationsAction(organizationId);
@@ -66,6 +67,7 @@ export default async function MembersPage({ params }: MembersPageProps) {
     if (invitationsResult.ok) {
       invitations = invitationsResult.invitations ?? [];
     } else {
+      invitationsFetchFailed = true;
       console.error(
         `[MembersPage] Failed to fetch invitations for organization ${organizationId}:`,
         invitationsResult.error
@@ -94,11 +96,25 @@ export default async function MembersPage({ params }: MembersPageProps) {
       </Card>
 
       {role === 'owner' ? (
-        <InvitationManager
-          organizationId={organizationId}
-          invitations={invitations}
-          onCancelInvitation={cancelInvitationAction.bind(null, organizationSlug)}
-        />
+        invitationsFetchFailed ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>招待管理</CardTitle>
+              <CardDescription>招待一覧を読み込めませんでした。</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-destructive">
+                招待一覧を取得できませんでした。時間をおいて再読み込みしてください。
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <InvitationManager
+            organizationId={organizationId}
+            invitations={invitations}
+            onCancelInvitation={cancelInvitationAction.bind(null, organizationSlug)}
+          />
+        )
       ) : null}
     </div>
   );

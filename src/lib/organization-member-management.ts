@@ -525,7 +525,7 @@ export async function leaveOrganization(
     simulateChange: (currentMembers) =>
       currentMembers.filter((member) => member.userId !== accessResult.userId),
     applyChange: async (tx) => {
-      await tx
+      const deleteQuery = tx
         .delete(membership)
         .where(
           and(
@@ -533,6 +533,18 @@ export async function leaveOrganization(
             eq(membership.userId, accessResult.userId)
           )
         );
+
+      const deletedMembers = await executeMutationReturningIds(
+        deleteQuery as unknown as ReturningQuery<{ id: string }[]>,
+        { id: membership.id }
+      );
+
+      if (deletedMembers.length === 0) {
+        return {
+          ok: false,
+          reason: 'not-found',
+        };
+      }
     },
   });
 
@@ -561,8 +573,6 @@ export async function cancelInvitation(
     };
   }
 
-  const now = new Date();
-
   try {
     return await runInMemberManagementTransaction(async (tx) => {
       const actingMembershipsQuery = tx
@@ -589,6 +599,11 @@ export async function cancelInvitation(
           reason: 'insufficient-role',
         };
       }
+
+      // ロック取得後（＝コミット直前）の時刻で期限を判定する。ロック待ちで
+      // ブロックされている間に期限切れになったケースを、ロック取得前の
+      // 古い `now` で判定してキャンセル成功させてしまわないようにするため
+      const now = new Date();
 
       const invitations = await tx
         .select({

@@ -145,4 +145,17 @@
 - Task 5.1: `resolveOrgContext` を認可・組織情報の唯一の正準ソースとし、`listMembersForViewer` は `.members` の取得にのみ使用すること。招待取得失敗時は独自フォールバックUIを作らず、常に本物の `InvitationManager` を `invitations=[]` で描画すること（コンポーネントの責務を親ページへ持ち込まない）。
 - Task 6.1: 統合テストで `listMembersForViewer` をモックする際は、実際の `toViewableMembersForRole` の挙動（owner は `userEmail` を含み、member は完全に省略）と一致させること。role にかかわらず email を含む非現実的なモックデータで `MemberList` 単体の防御を試すのは、承認済み設計（email 非開示は service 層でのみ保証）と矛盾する誤検知を生む。
 - Task 6.2: 実DB統合テスト基盤が存在しないため、カスケード削除の検証はモックDBによる「削除呼び出し→事後の組織検索が空を返す→organization-not-found」というシーケンス検証に限定した（membership/invitation の実FKカスケードはPostgreSQLの保証としてスコープ外、design.md記載の既承認事項）。
-- Task 6.3: member による remove/role-change/cancel-invitation/org-deletion の権限拒否（Requirements 2.6, 2.8, 5.2）は、UIが操作導線自体を非表示にする（`role-visibility.integration.test.tsx`, 新規 `settings/member-permissions.integration.test.tsx`）ことと、service層が `insufficient-role` を返す既存ユニットテスト（`organization-member-management.test.ts`）の組み合わせで担保されると判断し、UIから「攻撃的に権限を突破しようとする」テストは実画面の振る舞いに反するため追加しなかった。新規テストはUI/production コードを一時的に破壊してRED、復元してGREENを確認する形で証跡を取得すること（フェイクの `RED_PHASE_OUTPUT: N/A` は却下対象）。
+- Task 6.3: member による remove/role-change/cancel-invitation/org-deletion の権限拒否（Requirements 2.6, 2.8, 5.2）は、UIが操作導線自体を非表示にする（`role-visibility.integration.test.tsx`, 新規 `settings/member-permissions.integration.test.tsx`）ことと、service層が `insufficient-role` を返す既存ユニットテスト（`organization-member-management.test.ts`）の組み合わせで担保されると判断し、UIから「攻撃的に権限を突破しようとする」テストは実画面の振る舞いに反するため追加しなかった。
+  - `RED_PHASE_OUTPUT`（`settings/member-permissions.integration.test.tsx` の role ゲートを一時的に `orgContext.role === 'owner'` → `true` に破壊して実行）:
+    ```
+    FAIL  src/app/dashboard/org/[orgSlug]/settings/member-permissions.integration.test.tsx > settings member permissions integration > member では脱退操作のみ表示し、owner 専用の危険な操作を表示しないこと
+    Error: expect(element).not.toBeInTheDocument()
+    expected document not to contain element, found <div
+      class="font-heading text-lg font-semibold tracking-wider uppercase text-destructive"
+      data-slot="card-title"
+    >
+      危険な操作
+    </div> instead
+     ❯ src/app/dashboard/org/[orgSlug]/settings/member-permissions.integration.test.tsx:86:45
+    ```
+  - 破壊箇所を復元後、`pnpm exec vitest run src/app/dashboard/org/[orgSlug]/settings/member-permissions.integration.test.tsx` は 1/1 件 GREEN で確認済み。

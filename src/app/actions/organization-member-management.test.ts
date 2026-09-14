@@ -4,6 +4,7 @@ import {
   changeMemberRoleAction,
   deleteOrganizationAction,
   leaveOrganizationAction,
+  listMembersForViewerAction,
   removeMemberAction,
 } from './organization-member-management';
 import type { OrganizationRole } from '@/lib/organization-member-management';
@@ -12,11 +13,13 @@ import {
   changeMemberRole,
   deleteOrganization,
   leaveOrganization,
+  listMembersForViewer,
   removeMember,
 } from '@/lib/organization-member-management';
 import { headers } from 'next/headers';
 
 vi.mock('@/lib/organization-member-management', () => ({
+  listMembersForViewer: vi.fn(),
   removeMember: vi.fn(),
   changeMemberRole: vi.fn(),
   cancelInvitation: vi.fn(),
@@ -34,6 +37,42 @@ describe('Organization member management server actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(headers).mockResolvedValue(mockHeaders);
+  });
+
+  describe('listMembersForViewerAction', () => {
+    it('headers を取得し、サービスの成功結果をそのまま返すこと', async () => {
+      const mockResult = {
+        ok: true as const,
+        organizationId: 'org-1',
+        viewerRole: 'owner' as OrganizationRole,
+        members: [],
+      };
+      vi.mocked(listMembersForViewer).mockResolvedValueOnce(mockResult);
+
+      const result = await listMembersForViewerAction('acme');
+
+      expect(listMembersForViewer).toHaveBeenCalledWith({
+        headers: mockHeaders,
+        slug: 'acme',
+      });
+      expect(result).toEqual(mockResult);
+    });
+
+    it('サービスの失敗結果をそのまま返すこと', async () => {
+      const mockResult = {
+        ok: false as const,
+        reason: 'not-member' as const,
+      };
+      vi.mocked(listMembersForViewer).mockResolvedValueOnce(mockResult);
+
+      const result = await listMembersForViewerAction('acme');
+
+      expect(listMembersForViewer).toHaveBeenCalledWith({
+        headers: mockHeaders,
+        slug: 'acme',
+      });
+      expect(result).toEqual(mockResult);
+    });
   });
 
   describe('removeMemberAction', () => {
