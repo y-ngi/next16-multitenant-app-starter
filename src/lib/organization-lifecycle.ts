@@ -1,6 +1,6 @@
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, gt } from 'drizzle-orm';
 import { organization, membership, user, invitation, type OrganizationRole, type InvitationStatus } from '@/db/schema';
 import { randomUUID } from 'crypto';
 import { requireOrganizationAccess } from '@/lib/organization-authz';
@@ -673,39 +673,59 @@ export async function respondToInvitation(
     // 6. Handle acceptance
     if (accept) {
       // Create membership and update invitation within a transaction.
-      // Lock organization row first so lock order matches deleteOrganization:
-      // organization/membership -> invitation, avoiding circular waits with
-      // ON DELETE CASCADE on invitation rows during organization deletion.
+      // Lock all membership rows for the organization first (same order as
+      // deleteOrganization's owner-count guard: membership rows -> organization),
+      // instead of locking the organization row directly. deleteOrganization
+      // locks every membership row for the org before deleting the organization
+      // (whose ON DELETE CASCADE removes the invitation row); if this path
+      // instead locked the organization row first and then touched membership
+      // via the insert's unique-constraint check, the two transactions could
+      // wait on each other in opposite orders and deadlock. Locking the same
+      // membership rows first here establishes one consistent lock order.
       // The invitation status update is conditioned on the invitation still
-      // being 'pending' at commit time and its affected-row count is checked:
-      // this closes a race where a concurrent cancelInvitation (service:
-      // organization-member-management) commits 'canceled' between the
-      // initial read above and this transaction, which would otherwise let
-      // acceptance silently overwrite the canceled status back to 'accepted'.
-      let invitationAlreadyResolved = false;
+      // being 'pending' and not expired at commit time, and its affected-row
+      // count is checked: this closes a race where a concurrent
+      // cancelInvitation (service: organization-member-management) commits
+      // 'canceled', or the invitation's expiresAt passes, between the initial
+      // read above and this transaction, which would otherwise let acceptance
+      // silently overwrite the canceled/expired status back to 'accepted'.
+      let invitationFailureReason: 'already-used' | 'expired' | null = null;
 
       await db.transaction(async (tx) => {
         const membershipId = randomUUID();
         const createdAt = new Date();
 
         await tx
-          .select({ id: organization.id })
-          .from(organization)
-          .where(eq(organization.id, inv.organizationId))
-          .for('update')
-          .limit(1);
+          .select({ id: membership.id })
+          .from(membership)
+          .where(eq(membership.organizationId, inv.organizationId))
+          .for('update');
 
+        const updateAt = new Date();
         const updatedInvitations = await tx
           .update(invitation)
           .set({
             status: 'accepted' as InvitationStatus,
-            updatedAt: new Date(),
+            updatedAt: updateAt,
           })
-          .where(and(eq(invitation.id, inv.id), eq(invitation.status, 'pending')))
+          .where(
+            and(
+              eq(invitation.id, inv.id),
+              eq(invitation.status, 'pending'),
+              gt(invitation.expiresAt, updateAt)
+            )
+          )
           .returning({ id: invitation.id });
 
         if (updatedInvitations.length === 0) {
-          invitationAlreadyResolved = true;
+          const [currentInvitation] = await tx
+            .select({ status: invitation.status, expiresAt: invitation.expiresAt })
+            .from(invitation)
+            .where(eq(invitation.id, inv.id))
+            .limit(1);
+
+          invitationFailureReason =
+            currentInvitation && currentInvitation.expiresAt < updateAt ? 'expired' : 'already-used';
           return;
         }
 
@@ -721,7 +741,14 @@ export async function respondToInvitation(
           });
       });
 
-      if (invitationAlreadyResolved) {
+      if (invitationFailureReason === 'expired') {
+        return {
+          ok: false,
+          error: 'Invitation has expired',
+        };
+      }
+
+      if (invitationFailureReason === 'already-used') {
         return {
           ok: false,
           error: 'Invitation has already been used',

@@ -1209,10 +1209,10 @@ describe('Organization Lifecycle', () => {
       const mockUpdate = vi.fn().mockReturnValue({
         set: mockUpdateSet,
       });
-      const organizationLockChain = createSelectChain([{ id: organizationId }]);
+      const membershipLockChain = createSelectChain([{ id: 'membership-existing' }]);
 
       const mockTx = {
-        select: vi.fn().mockReturnValue(organizationLockChain),
+        select: vi.fn().mockReturnValue(membershipLockChain),
         insert: mockInsert,
         update: mockUpdate,
       };
@@ -1243,11 +1243,10 @@ describe('Organization Lifecycle', () => {
       expect(result.ok).toBe(true);
       expect(result.error).toBeUndefined();
       expect(db.transaction).toHaveBeenCalled();
-      expect(mockTx.select).toHaveBeenCalledWith({ id: organization.id });
-      expect(organizationLockChain.from).toHaveBeenCalledWith(organization);
-      expect(organizationLockChain.where).toHaveBeenCalledWith(eq(organization.id, organizationId));
-      expect(organizationLockChain.for).toHaveBeenCalledWith('update');
-      expect(organizationLockChain.limit).toHaveBeenCalledWith(1);
+      expect(mockTx.select).toHaveBeenCalledWith({ id: membership.id });
+      expect(membershipLockChain.from).toHaveBeenCalledWith(membership);
+      expect(membershipLockChain.where).toHaveBeenCalledWith(eq(membership.organizationId, organizationId));
+      expect(membershipLockChain.for).toHaveBeenCalledWith('update');
       expect(sendAcceptanceNotificationEmail).toHaveBeenCalled();
     });
 
@@ -1287,10 +1286,13 @@ describe('Organization Lifecycle', () => {
       const mockUpdate = vi.fn().mockReturnValue({
         set: mockUpdateSet,
       });
-      const organizationLockChain = createSelectChain([{ id: organizationId }]);
+      const membershipLockChain = createSelectChain([{ id: 'membership-existing' }]);
+      // 条件付き UPDATE が0件のときの再検証読み取り：status は pending 以外（例: canceled）で
+      // expiresAt は未来（期限切れではない）ため、already-used と判定される
+      const recheckChain = createSelectChain([{ status: 'canceled', expiresAt: futureDate }]);
 
       const mockTx = {
-        select: vi.fn().mockReturnValue(organizationLockChain),
+        select: vi.fn().mockReturnValueOnce(membershipLockChain).mockReturnValueOnce(recheckChain),
         insert: mockInsert,
         update: mockUpdate,
       };
@@ -1307,7 +1309,70 @@ describe('Organization Lifecycle', () => {
         ok: false,
         error: 'Invitation has already been used',
       });
-      expect(mockTx.select).toHaveBeenCalledWith({ id: organization.id });
+      expect(mockTx.select).toHaveBeenCalledWith({ id: membership.id });
+      expect(mockInsert).not.toHaveBeenCalled();
+      expect(sendAcceptanceNotificationEmail).not.toHaveBeenCalled();
+    });
+
+    it('承諾処理のトランザクション実行時点で招待の有効期限が切れていた場合、membership を作成せず期限切れとして失敗を返すこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+      const pastDate = new Date(now.getTime() - 1000);
+
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: { id: userId, email: inviteeEmail },
+        session: { id: 'sess-1' },
+      } as any);
+
+      mockSelectOnce([{
+        id: invitationId,
+        organizationId,
+        email: inviteeEmail,
+        token,
+        status: 'pending',
+        expiresAt: futureDate,
+        role: 'member',
+        inviterId,
+        createdAt: now,
+        updatedAt: now,
+      }]);
+
+      const mockInsert = vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([{ id: 'membership-id-new' }]),
+      });
+
+      const mockUpdateSet = vi.fn().mockReturnValue({
+        // 有効期限条件を含む条件付き UPDATE が0件を返す = トランザクション時点で期限切れ
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([]),
+        }),
+      });
+
+      const mockUpdate = vi.fn().mockReturnValue({
+        set: mockUpdateSet,
+      });
+      const membershipLockChain = createSelectChain([{ id: 'membership-existing' }]);
+      // 再検証読み取り：status は pending のままだが expiresAt が過去のため expired と判定される
+      const recheckChain = createSelectChain([{ status: 'pending', expiresAt: pastDate }]);
+
+      const mockTx = {
+        select: vi.fn().mockReturnValueOnce(membershipLockChain).mockReturnValueOnce(recheckChain),
+        insert: mockInsert,
+        update: mockUpdate,
+      };
+
+      vi.mocked(db.transaction).mockImplementation(async (fn) => fn(mockTx as any));
+
+      const result = await respondToInvitation({
+        headers,
+        token,
+        accept: true,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: 'Invitation has expired',
+      });
       expect(mockInsert).not.toHaveBeenCalled();
       expect(sendAcceptanceNotificationEmail).not.toHaveBeenCalled();
     });
@@ -1383,7 +1448,7 @@ describe('Organization Lifecycle', () => {
       const mockUpdate = vi.fn().mockReturnValue({
         set: mockUpdateSet,
       });
-      const organizationLockChain = createSelectChain([{ id: organizationId }]);
+      const organizationLockChain = createSelectChain([{ id: 'membership-existing' }]);
 
       const mockTx = {
         select: vi.fn().mockReturnValue(organizationLockChain),
