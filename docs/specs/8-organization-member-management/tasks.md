@@ -64,7 +64,7 @@
   - _Boundary: organization-member-management service_
   - _Depends: 2.4, 2.5_
 
-- [ ] 3. Core: Server Action ラッパーを実装する
+- [x] 3. Core: Server Action ラッパーを実装する
   - `removeMember` / `changeMemberRole` / `cancelInvitation` / `leaveOrganization` / `deleteOrganization` それぞれに対応する薄い Server Action（`headers()` 取得 + サービス呼び出しのみ、`src/app/actions/organization.ts` と同じ規約）を `src/app/actions/organization-member-management.ts` に実装する
   - 観測可能な完了条件: クライアントコンポーネントから `(slug: string, ...) => Promise<Result>` 形式でこれら5操作を呼び出せる Server Action が揃っている
   - _Requirements: 2.2, 2.3, 2.4, 2.7, 3.1, 3.2, 4.1, 5.1_
