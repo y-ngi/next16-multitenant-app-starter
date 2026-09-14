@@ -126,7 +126,7 @@
   - _Requirements: 1.1, 1.2, 1.3_
   - _Depends: 5.1_
 
-- [ ] 6.2 組織削除のカスケード効果に関する統合テストを追加する
+- [x] 6.2 組織削除のカスケード効果に関する統合テストを追加する
   - `deleteOrganization` 実行後、対象組織に紐づく `membership` / `invitation` が既存の `onDelete: cascade` によりすべて削除され、その後の `resolveOrgContext` 呼び出しが `organization-not-found` を返すことを検証する
   - 観測可能な完了条件: 組織削除→関連データ消失→コンテキスト解決失敗という一連の流れを確認するテストが追加され、`vitest` 実行でグリーンになる
   - _Requirements: 5.1, 5.3_
@@ -144,3 +144,4 @@
 - Task 4.2: `InvitationManager` の招待作成成功通知を legacy caller（`organization-list.tsx`、クライアント側 state 管理）にも伝える必要があったため、`router.refresh()`（`MembersPage` 向け）に加えて任意の `onInvitationCreated` コールバックを追加し、両方の呼び出し元で一覧が正しく再取得されるようにした。
 - Task 5.1: `resolveOrgContext` を認可・組織情報の唯一の正準ソースとし、`listMembersForViewer` は `.members` の取得にのみ使用すること。招待取得失敗時は独自フォールバックUIを作らず、常に本物の `InvitationManager` を `invitations=[]` で描画すること（コンポーネントの責務を親ページへ持ち込まない）。
 - Task 6.1: 統合テストで `listMembersForViewer` をモックする際は、実際の `toViewableMembersForRole` の挙動（owner は `userEmail` を含み、member は完全に省略）と一致させること。role にかかわらず email を含む非現実的なモックデータで `MemberList` 単体の防御を試すのは、承認済み設計（email 非開示は service 層でのみ保証）と矛盾する誤検知を生む。
+- Task 6.2: 実DB統合テスト基盤が存在しないため、カスケード削除の検証はモックDBによる「削除呼び出し→事後の組織検索が空を返す→organization-not-found」というシーケンス検証に限定した（membership/invitation の実FKカスケードはPostgreSQLの保証としてスコープ外、design.md記載の既承認事項）。
