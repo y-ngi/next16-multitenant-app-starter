@@ -93,7 +93,7 @@
   - _Requirements: 3.1, 3.2, 3.3_
   - _Boundary: LeaveOrganizationButton_
 
-- [ ] 4.4 (P) `OrganizationDangerZone` を新規作成する
+- [x] 4.4 (P) `OrganizationDangerZone` を新規作成する
   - owner 限定の「自分を member に変更」ボタンと「組織を削除」ボタンをそれぞれ独立した確認ダイアログ付きで実装する。自己降格の `last-owner-protection` 失敗、組織削除失敗時のメッセージを表示し、組織削除成功時は `/dashboard/personal/organizations` へ遷移する
   - 観測可能な完了条件: 自己降格・組織削除それぞれのボタン押下→確認→実行がコンポーネントテストで検証でき、`MemberList` には自己降格用の操作ボタンが存在しないことと矛盾しない導線であることを確認できる
   - _Requirements: 4.1, 4.2, 5.1, 5.2, 5.3_
