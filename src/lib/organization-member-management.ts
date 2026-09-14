@@ -1,3 +1,6 @@
+import { eq } from 'drizzle-orm';
+import { db } from '@/db';
+import { membership } from '@/db/schema';
 import { requireOrganizationAccessBySlug, type OrganizationRole } from '@/lib/organization-authz';
 import { getOrganizationMembers } from '@/lib/organization-lifecycle';
 
@@ -38,6 +41,63 @@ export type ListMembersResult =
       readonly ok: false;
       readonly reason: MemberManagementFailureReason;
     };
+
+type OrganizationMemberManagementTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export interface OwnerGuardMembership {
+  readonly id: string;
+  readonly userId: string;
+  readonly role: OrganizationRole;
+}
+
+export interface EnsureOwnerRemainsAfterChangeInput {
+  readonly organizationId: string;
+  readonly simulateChange: (
+    currentMembers: readonly OwnerGuardMembership[]
+  ) => readonly OwnerGuardMembership[];
+  readonly applyChange: (tx: OrganizationMemberManagementTransaction) => Promise<void>;
+}
+
+export type EnsureOwnerRemainsAfterChangeResult =
+  | {
+      readonly ok: true;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'last-owner-protection';
+    };
+
+export async function ensureOwnerRemainsAfterChange(
+  input: EnsureOwnerRemainsAfterChangeInput
+): Promise<EnsureOwnerRemainsAfterChangeResult> {
+  return db.transaction(async (tx) => {
+    const currentMembers = await tx
+      .select({
+        id: membership.id,
+        userId: membership.userId,
+        role: membership.role,
+      })
+      .from(membership)
+      .where(eq(membership.organizationId, input.organizationId))
+      .for('update');
+
+    const nextMembers = input.simulateChange(currentMembers);
+    const remainingOwnerCount = nextMembers.filter((member) => member.role === 'owner').length;
+
+    if (remainingOwnerCount === 0) {
+      return {
+        ok: false,
+        reason: 'last-owner-protection',
+      };
+    }
+
+    await input.applyChange(tx);
+
+    return {
+      ok: true,
+    };
+  });
+}
 
 export async function listMembersForViewer(input: MemberManagementActionInput): Promise<ListMembersResult> {
   const accessResult = await requireOrganizationAccessBySlug({

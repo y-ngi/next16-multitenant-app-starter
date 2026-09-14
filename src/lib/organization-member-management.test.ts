@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/db', () => ({
+  db: {
+    transaction: vi.fn(),
+  },
+}));
+
 vi.mock('@/lib/organization-authz', () => ({
   requireOrganizationAccessBySlug: vi.fn(),
 }));
@@ -9,8 +15,20 @@ vi.mock('@/lib/organization-lifecycle', () => ({
 }));
 
 import { requireOrganizationAccessBySlug } from '@/lib/organization-authz';
+import { db } from '@/db';
 import { getOrganizationMembers } from '@/lib/organization-lifecycle';
-import { listMembersForViewer } from './organization-member-management';
+import { ensureOwnerRemainsAfterChange, listMembersForViewer } from './organization-member-management';
+
+function createLockedMembershipSelectChain<T>(rows: T[]) {
+  const promise = Promise.resolve(rows);
+  const chain = {
+    from: vi.fn(() => chain),
+    where: vi.fn(() => chain),
+    for: vi.fn(() => promise),
+  };
+
+  return chain;
+}
 
 describe('organization-member-management', () => {
   const headers = new Headers({ authorization: 'Bearer test-token' });
@@ -156,5 +174,154 @@ describe('organization-member-management', () => {
     );
 
     consoleErrorSpy.mockRestore();
+  });
+
+  describe('ensureOwnerRemainsAfterChange', () => {
+    it('唯一の owner を除去するシミュレーションでは last-owner-protection を返し、更新しないこと', async () => {
+      const applyChange = vi.fn<
+        Parameters<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>,
+        ReturnType<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>
+      >();
+
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) => {
+        const tx = {
+          select: vi.fn(() =>
+            createLockedMembershipSelectChain([
+              {
+                id: 'membership-1',
+                userId: 'user-1',
+                role: 'owner' as const,
+              },
+            ])
+          ),
+        };
+
+        return callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0]);
+      });
+
+      const result = await ensureOwnerRemainsAfterChange({
+        organizationId,
+        simulateChange: (currentMembers) => currentMembers.filter((member) => member.userId !== 'user-1'),
+        applyChange,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'last-owner-protection',
+      });
+      expect(applyChange).not.toHaveBeenCalled();
+    });
+
+    it('複数 owner がいる場合は変更を許可して更新処理を1回だけ呼ぶこと', async () => {
+      const applyChange = vi.fn<
+        Parameters<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>,
+        ReturnType<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>
+      >().mockResolvedValue(undefined);
+
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) => {
+        const tx = {
+          select: vi.fn(() =>
+            createLockedMembershipSelectChain([
+              {
+                id: 'membership-1',
+                userId: 'user-1',
+                role: 'owner' as const,
+              },
+              {
+                id: 'membership-2',
+                userId: 'user-2',
+                role: 'owner' as const,
+              },
+            ])
+          ),
+        };
+
+        return callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0]);
+      });
+
+      const result = await ensureOwnerRemainsAfterChange({
+        organizationId,
+        simulateChange: (currentMembers) =>
+          currentMembers.map((member) =>
+            member.userId === 'user-1'
+              ? {
+                  ...member,
+                  role: 'member',
+                }
+              : member
+          ),
+        applyChange,
+      });
+
+      expect(result).toEqual({
+        ok: true,
+      });
+      expect(applyChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('ロック取得が更新処理より先に完了すること', async () => {
+      const callOrder: string[] = [];
+      const lockedRows = [
+        {
+          id: 'membership-1',
+          userId: 'user-1',
+          role: 'owner' as const,
+        },
+        {
+          id: 'membership-2',
+          userId: 'user-2',
+          role: 'owner' as const,
+        },
+      ];
+
+      vi.mocked(db.transaction).mockImplementationOnce(async (callback) => {
+        const promise = Promise.resolve(lockedRows).then((rows) => {
+          callOrder.push('lock-resolved');
+          return rows;
+        });
+        const chain = {
+          from: vi.fn(() => chain),
+          where: vi.fn(() => chain),
+          for: vi.fn(() => {
+            callOrder.push('for-update');
+            return promise;
+          }),
+        };
+        const tx = {
+          select: vi.fn(() => {
+            callOrder.push('select');
+            return chain;
+          }),
+        };
+
+        return callback(tx as Parameters<Parameters<typeof db.transaction>[0]>[0]);
+      });
+
+      const applyChange = vi.fn<
+        Parameters<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>,
+        ReturnType<Parameters<typeof ensureOwnerRemainsAfterChange>[0]['applyChange']>
+      >(async () => {
+        callOrder.push('apply-change');
+      });
+
+      const result = await ensureOwnerRemainsAfterChange({
+        organizationId,
+        simulateChange: (currentMembers) =>
+          currentMembers.map((member) =>
+            member.userId === 'user-1'
+              ? {
+                  ...member,
+                  role: 'member',
+                }
+              : member
+          ),
+        applyChange,
+      });
+
+      expect(result).toEqual({
+        ok: true,
+      });
+      expect(callOrder).toEqual(['select', 'for-update', 'lock-resolved', 'apply-change']);
+    });
   });
 });

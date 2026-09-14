@@ -8,7 +8,7 @@
   - _Requirements: 1.1, 1.2, 1.3_
   - _Boundary: organization-member-management service_
 
-- [ ] 1.2 owner 最小数保護の共有ガード（`ensureOwnerRemainsAfterChange`）を実装する
+- [x] 1.2 owner 最小数保護の共有ガード（`ensureOwnerRemainsAfterChange`）を実装する
   - 対象組織の `membership` 行を `db.transaction` 内で標準クエリビルダーの `.for('update')` を用いて行ロックし、対象操作（削除/ロール変更/脱退）後の owner 数をシミュレートしてから 0 になる場合は例外的に処理を打ち切り `last-owner-protection` を返すガード関数を実装する
   - 0 にならない場合は同一トランザクション内で呼び出し元が渡す更新処理を実行できるようにする（コールバック方式など、削除・ロール変更・脱退から共通利用できるインターフェースにする）
   - 観測可能な完了条件: 唯一の owner を対象にした降格・削除・脱退のシミュレーションでガードが `last-owner-protection` を返し、複数 owner が存在する場合は許可されることをユニットテストで確認できる。モック化した `db` に対して `.for('update')` を伴うロック取得が更新処理より先に呼ばれることを呼び出し順序で検証する
