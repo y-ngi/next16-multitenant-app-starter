@@ -120,7 +120,7 @@
   - _Depends: 5.1, 5.2_
 
 - [ ] 6. Validation: 統合テストと不変条件の確認
-- [ ] 6.1 メンバー一覧のロール別可視性に関する統合テストを追加する
+- [x] 6.1 メンバー一覧のロール別可視性に関する統合テストを追加する
   - 実際の `page.tsx` + `MemberList` + `InvitationManager` を合成し、member ロールではメールアドレス・操作ボタンが非表示、owner ロールでは表示されることを検証する。`MemberList` へメール付き/なしデータをそれぞれ渡した場合に自身がフィルタ漏れを起こさないことも確認する
   - 観測可能な完了条件: 上記2ロールそれぞれのレンダリング結果を検証するテストが追加され、`vitest` 実行でグリーンになる
   - _Requirements: 1.1, 1.2, 1.3_
@@ -143,3 +143,4 @@
 - Task 4.1: `organization-list.tsx`（`/dashboard/personal` の概要表示、本specの境界外）が旧 `MemberList` props に依存していたため、design 契約の単一化に伴い read-only 表示（`viewerRole:'member'` 固定、操作ボタン非表示）として合わせて更新した。
 - Task 4.2: `InvitationManager` の招待作成成功通知を legacy caller（`organization-list.tsx`、クライアント側 state 管理）にも伝える必要があったため、`router.refresh()`（`MembersPage` 向け）に加えて任意の `onInvitationCreated` コールバックを追加し、両方の呼び出し元で一覧が正しく再取得されるようにした。
 - Task 5.1: `resolveOrgContext` を認可・組織情報の唯一の正準ソースとし、`listMembersForViewer` は `.members` の取得にのみ使用すること。招待取得失敗時は独自フォールバックUIを作らず、常に本物の `InvitationManager` を `invitations=[]` で描画すること（コンポーネントの責務を親ページへ持ち込まない）。
+- Task 6.1: 統合テストで `listMembersForViewer` をモックする際は、実際の `toViewableMembersForRole` の挙動（owner は `userEmail` を含み、member は完全に省略）と一致させること。role にかかわらず email を含む非現実的なモックデータで `MemberList` 単体の防御を試すのは、承認済み設計（email 非開示は service 層でのみ保証）と矛盾する誤検知を生む。
