@@ -672,10 +672,32 @@ export async function respondToInvitation(
 
     // 6. Handle acceptance
     if (accept) {
-      // Create membership and update invitation within a transaction
+      // Create membership and update invitation within a transaction.
+      // The invitation status update is conditioned on the invitation still
+      // being 'pending' at commit time and its affected-row count is checked:
+      // this closes a race where a concurrent cancelInvitation (service:
+      // organization-member-management) commits 'canceled' between the
+      // initial read above and this transaction, which would otherwise let
+      // acceptance silently overwrite the canceled status back to 'accepted'.
+      let invitationAlreadyResolved = false;
+
       await db.transaction(async (tx) => {
         const membershipId = randomUUID();
         const createdAt = new Date();
+
+        const updatedInvitations = await tx
+          .update(invitation)
+          .set({
+            status: 'accepted' as InvitationStatus,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(invitation.id, inv.id), eq(invitation.status, 'pending')))
+          .returning({ id: invitation.id });
+
+        if (updatedInvitations.length === 0) {
+          invitationAlreadyResolved = true;
+          return;
+        }
 
         // Create membership with role from invitation
         await tx
@@ -687,16 +709,14 @@ export async function respondToInvitation(
             role: inv.role as OrganizationRole,
             createdAt,
           });
-
-        // Update invitation status to accepted
-        await tx
-          .update(invitation)
-          .set({
-            status: 'accepted' as InvitationStatus,
-            updatedAt: new Date(),
-          })
-          .where(eq(invitation.id, inv.id));
       });
+
+      if (invitationAlreadyResolved) {
+        return {
+          ok: false,
+          error: 'Invitation has already been used',
+        };
+      }
 
       // 7. Get inviter info and send acceptance notification email
       const inviterUsers = await db

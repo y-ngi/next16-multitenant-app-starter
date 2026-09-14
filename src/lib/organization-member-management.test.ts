@@ -315,7 +315,7 @@ describe('organization-member-management', () => {
     expect(getOrganizationMembers).not.toHaveBeenCalled();
   });
 
-  it('メンバー取得失敗時はエラーを記録して not-found を返すこと', async () => {
+  it('メンバー取得失敗時はエラーを記録して system-failure を返すこと', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
@@ -335,7 +335,7 @@ describe('organization-member-management', () => {
 
     expect(result).toEqual({
       ok: false,
-      reason: 'not-found',
+      reason: 'system-failure',
     });
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining('[listMembersForViewer]'),
@@ -523,7 +523,8 @@ describe('organization-member-management', () => {
       expect(callOrder).toEqual(['select', 'for-update', 'lock-resolved', 'apply-change']);
     });
 
-    it('ロッククエリが for("update") を持たない場合は TypeError を送出すること', async () => {
+    it('ロッククエリが for("update") を持たない場合は system-failure を返すこと', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(db.transaction).mockImplementationOnce(async (callback) => {
         const tx = {
           select: vi.fn(() =>
@@ -540,13 +541,22 @@ describe('organization-member-management', () => {
         return callback(asDbTransaction(tx));
       });
 
-      await expect(
-        ensureOwnerRemainsAfterChange({
-          organizationId,
-          simulateChange: (currentMembers) => currentMembers,
-          applyChange: vi.fn<ApplyChange>(),
-        })
-      ).rejects.toThrow('for()');
+      const result = await ensureOwnerRemainsAfterChange({
+        organizationId,
+        simulateChange: (currentMembers) => currentMembers,
+        applyChange: vi.fn<ApplyChange>(),
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'system-failure',
+      });
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[ensureOwnerRemainsAfterChange]'),
+        expect.any(Error)
+      );
+
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -734,7 +744,7 @@ describe('organization-member-management', () => {
       expect(getOrganizationMembers).not.toHaveBeenCalled();
     });
 
-    it('唯一の owner を削除しようとすると last-owner-protection を返すこと', async () => {
+    it('acting owner が自分自身を targetUserId に指定すると insufficient-role を返し、削除処理へ進まないこと（自己脱退は leaveOrganization に集約）', async () => {
       const deleteChain = createDeleteChain();
       const tx = {
         select: vi.fn(() =>
@@ -761,16 +771,14 @@ describe('organization-member-management', () => {
         userId: 'user-1',
         role: 'owner',
       });
-      vi.mocked(db.transaction).mockImplementationOnce(async (callback) =>
-        callback(asDbTransaction(tx))
-      );
 
       const result = await removeMember({ headers, slug, targetUserId: 'user-1' });
 
       expect(result).toEqual({
         ok: false,
-        reason: 'last-owner-protection',
+        reason: 'insufficient-role',
       });
+      expect(db.transaction).not.toHaveBeenCalled();
       expect(tx.delete).not.toHaveBeenCalled();
       expect(getOrganizationMembers).not.toHaveBeenCalled();
     });
@@ -1160,6 +1168,15 @@ describe('organization-member-management', () => {
     });
 
     it('不正な newRole 文字列は insufficient-role を返し、更新処理へ進まないこと', async () => {
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: true,
+        organizationId,
+        organizationName: 'Test Org',
+        organizationSlug: slug,
+        userId: 'user-1',
+        role: 'owner',
+      });
+
       const result = await changeMemberRole({
         headers,
         slug,
@@ -1171,7 +1188,27 @@ describe('organization-member-management', () => {
         ok: false,
         reason: 'insufficient-role',
       });
-      expect(requireOrganizationAccessBySlug).not.toHaveBeenCalled();
+      expect(requireOrganizationAccessBySlug).toHaveBeenCalledOnce();
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('未認証の呼び出し元が不正な newRole を指定した場合は認可を優先して unauthenticated を返すこと', async () => {
+      vi.mocked(requireOrganizationAccessBySlug).mockResolvedValueOnce({
+        ok: false,
+        reason: 'unauthenticated',
+      });
+
+      const result = await changeMemberRole({
+        headers,
+        slug,
+        targetUserId: 'user-2',
+        newRole: 'admin' as never,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'unauthenticated',
+      });
       expect(db.transaction).not.toHaveBeenCalled();
     });
 
@@ -1329,14 +1366,21 @@ describe('organization-member-management', () => {
         callback(asDbTransaction(tx))
       );
 
-      await expect(
-        changeMemberRole({
-          headers,
-          slug,
-          targetUserId: 'user-2',
-          newRole: 'member',
-        })
-      ).rejects.toThrow('returning()');
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const result = await changeMemberRole({
+        headers,
+        slug,
+        targetUserId: 'user-2',
+        newRole: 'member',
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'system-failure',
+      });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 

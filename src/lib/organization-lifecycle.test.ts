@@ -1199,7 +1199,9 @@ describe('Organization Lifecycle', () => {
       });
 
       const mockUpdateSet = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: invitationId }]),
+        }),
       });
 
       const mockUpdate = vi.fn().mockReturnValue({
@@ -1238,6 +1240,64 @@ describe('Organization Lifecycle', () => {
       expect(result.error).toBeUndefined();
       expect(db.transaction).toHaveBeenCalled();
       expect(sendAcceptanceNotificationEmail).toHaveBeenCalled();
+    });
+
+    it('承諾処理のトランザクション実行時点で招待が既に pending でなくなっていた場合（並行キャンセル等）、membership を作成せず失敗を返すこと', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: { id: userId, email: inviteeEmail },
+        session: { id: 'sess-1' },
+      } as any);
+
+      mockSelectOnce([{
+        id: invitationId,
+        organizationId,
+        email: inviteeEmail,
+        token,
+        status: 'pending',
+        expiresAt: futureDate,
+        role: 'member',
+        inviterId,
+        createdAt: now,
+        updatedAt: now,
+      }]);
+
+      const mockInsert = vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([{ id: 'membership-id-new' }]),
+      });
+
+      const mockUpdateSet = vi.fn().mockReturnValue({
+        // 条件付き UPDATE（status = 'pending'）が0件を返す = 並行キャンセル/受諾済みを意味する
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([]),
+        }),
+      });
+
+      const mockUpdate = vi.fn().mockReturnValue({
+        set: mockUpdateSet,
+      });
+
+      const mockTx = {
+        insert: mockInsert,
+        update: mockUpdate,
+      };
+
+      vi.mocked(db.transaction).mockImplementation(async (fn) => fn(mockTx as any));
+
+      const result = await respondToInvitation({
+        headers,
+        token,
+        accept: true,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: 'Invitation has already been used',
+      });
+      expect(mockInsert).not.toHaveBeenCalled();
+      expect(sendAcceptanceNotificationEmail).not.toHaveBeenCalled();
     });
 
     it('招待を拒否する場合、membership を作成せず invitation を rejected に更新すること', async () => {
@@ -1303,7 +1363,9 @@ describe('Organization Lifecycle', () => {
       });
 
       const mockUpdateSet = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: invitationId }]),
+        }),
       });
 
       const mockUpdate = vi.fn().mockReturnValue({

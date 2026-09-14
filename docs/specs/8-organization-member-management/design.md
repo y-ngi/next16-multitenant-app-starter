@@ -142,6 +142,9 @@ src/
 | 2.6 | member による管理操作を拒否する | `requireOrganizationAccessBySlug`（`requiredRole: 'owner'`） | Service | 全ミューテーションフロー共通 |
 | 2.7 | owner が保留中の招待を削除する | InvitationManager, `cancelInvitation` | Service | 招待キャンセルフロー |
 | 2.8 | member による招待削除を拒否する | `cancelInvitation`（owner限定認可） | Service | 招待キャンセルフロー |
+
+**`cancelInvitation` と既存の招待承諾フローとの整合性（境界外バグ修正）**
+`cancelInvitation`（本spec, `organization-member-management.ts`）と、既存の招待承諾フロー `respondToInvitation`（spec 6, `organization-lifecycle.ts`）は同じ `invitation` テーブルの `status` 列を競合更新しうる。当初の `respondToInvitation` は招待更新を `id` のみを条件に無条件実行しており、`cancelInvitation` が先に `pending → canceled` をコミットした直後に `respondToInvitation` が古い読み取り結果に基づいて `accepted` へ上書きしてしまうと、キャンセル済み招待が承諾されてしまう競合状態が生じる。本spec追加時に新たに顕在化した不整合であるため、`respondToInvitation` 側の更新条件を `WHERE id = ... AND status = 'pending'` に変更し、`.returning()` で更新件数を確認して0件なら「既に処理済み」エラーを返すよう修正した（`organization-lifecycle.ts` の既存責務範囲内の最小差分修正であり、本spec独自の新規責務は追加しない）。
 | 3.1 | member が自己脱退する | SettingsPage, LeaveOrganizationButton, `leaveOrganization` | Service | 自己脱退フロー |
 | 3.2 | 複数owner組織で owner が自己脱退する | SettingsPage, LeaveOrganizationButton, `leaveOrganization` | Service | 自己脱退フロー |
 | 3.3 | 唯一の owner の脱退を拒否する | `ensureOwnerRemainsAfterChange`（共有ガード） | Service | 自己脱退フロー |
@@ -193,19 +196,21 @@ flowchart TD
 | Requirements | 1.1, 1.2, 1.3, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 3.1, 3.2, 3.3, 4.1, 4.2, 5.1, 5.2, 5.3 |
 
 **Responsibilities & Constraints**
-- 全ての公開関数はまず `requireOrganizationAccessBySlug` を呼び出し、認可に失敗した場合は即座に失敗理由を返す（ミューテーションの実行前に必ず認可判定を行う）。
-- owner 数の不変条件（常に1以上）を検証する内部ガード `ensureOwnerRemainsAfterChange` を、削除・ロール変更・自己脱退の全操作から共有する。このガードは対象組織の `membership` 行を `SELECT ... FOR UPDATE` で明示的に行ロックしてから owner 数を数え、同一トランザクション内で更新を確定させる（同時実行時に owner 0人化を防ぐ。詳細は Concurrency Control を参照）。
-- 組織削除は `organization` 行を削除するのみとし、`membership` / `invitation` は既存の `onDelete: cascade` 制約に委ねる（アプリケーション層で個別削除を行わない）。
-- メンバー一覧の閲覧は既存の `getOrganizationMembers`（`organization-lifecycle`）を呼び出した後、viewerRole が `owner` でない場合は各要素の `userEmail` を除去してから返す。この結果（`ViewableMember[]`）はページ側で1度だけ取得し、`MemberList` へ props として渡す。`MemberList` はメンバー取得を自ら行わない（Critical Issue 1 対応、Components and Interfaces / MemberList を参照）。
+- 全ての公開関数はまず `requireOrganizationAccessBySlug` を呼び出し、認可に失敗した場合は即座に失敗理由を返す（ミューテーションの実行前に必ず認可判定を行う）。入力バリデーション（例: `changeMemberRole` の `newRole` 値検証）は認可判定より後に行う（未認証・権限不足の呼び出し元には常に認可由来の失敗理由を返し、`insufficient-role` を誤って返さないようにするため）。
+- `removeMember` は owner が他者を削除するための操作専用とし、`targetUserId` が呼び出し本人と一致する場合は `insufficient-role` を返して処理を中断する（自己脱退は `leaveOrganization` に一本化する契約）。
+- owner 数の不変条件（常に1以上）を検証する内部ガード `ensureOwnerRemainsAfterChange` を、削除・ロール変更・自己脱退の全操作から共有する。このガードは対象組織の `membership` 行を `SELECT ... FOR UPDATE` で明示的に行ロックしてから owner 数を数え、同一トランザクション内で更新を確定させる（同時実行時に owner 0人化を防ぐ。詳細は Concurrency Control を参照）。ガード内部・`cancelInvitation` の各トランザクションで想定外の例外が発生した場合は try/catch で捕捉し、例外を呼び出し元へ伝播させず `{ ok: false, reason: 'system-failure' }` を返す。
+- 組織削除は `organization` 行を削除するのみとし、`membership` / `invitation` は既存の `onDelete: cascade` 制約に委ねる（アプリケーション層で個別削除を行わない）。ロック取得後に対象組織の `membership` 行が0件（cascadeにより既に削除済み）だった場合は `organization-not-found` を返し、`insufficient-role` と混同しない。
+- メンバー一覧の閲覧は既存の `getOrganizationMembers`（`organization-lifecycle`）を呼び出した後、viewerRole が `owner` でない場合は各要素の `userEmail` を除去してから返す。この結果（`ViewableMember[]`）はページ側で1度だけ取得し、`MemberList` へ props として渡す。`MemberList` はメンバー取得を自ら行わない（Critical Issue 1 対応、Components and Interfaces / MemberList を参照）。`getOrganizationMembers` が `ok: false` を返した場合は、既知のエラーメッセージ（未認証・非メンバー・組織不存在・権限不足）を対応する `MemberManagementFailureReason` に個別変換し、それ以外（DB例外等）は `system-failure` として扱う（空メンバー一覧の `not-found` と失敗結果の混同を避ける）。
 
 **Concurrency Control（owner 最小数不変条件の保護）**
 - `removeMember` / `changeMemberRole` / `leaveOrganization` は以下の手順を単一の `db.transaction` 内で実行する:
-  1. `tx.select({ id: membership.id, role: membership.role }).from(membership).where(eq(membership.organizationId, organizationId)).for('update')` を発行し、Drizzle の標準クエリビルダーが提供する `.for('update')` 節（生SQLを書かずにチェーン可能）で対象組織の全 `membership` 行を行ロックする（PostgreSQL の行ロックにより、同一組織に対する同時トランザクションは後続がブロックされ、直列化される）。
+  1. `tx.select({ id: membership.id, role: membership.role }).from(membership).innerJoin(user, ...).where(eq(membership.organizationId, organizationId)).for('update', { of: membership })` を発行し、Drizzle の標準クエリビルダーが提供する `.for('update', { of: membership })` 節（生SQLを書かずにチェーン可能）で対象組織の全 `membership` 行のみを行ロックする（PostgreSQL の行ロックにより、同一組織に対する同時トランザクションは後続がブロックされ、直列化される）。`of` 指定を省略すると `innerJoin` した `user` 行まで巻き込んでロックされ、無関係な組織間でのブロッキングやデッドロックの原因になるため、必ず `membership` テーブルに限定する。
   2. ロック取得後の行データを使って、操作後の owner 数を計算する（対象行の削除/ロール変更をシミュレートしてから `role = 'owner'` の件数を数える）。
   3. 操作後の owner 数が 0 になる場合は `ROLLBACK` 相当（例外throw等でtransaction関数から抜ける）し、`last-owner-protection` を返す。
   4. 0 にならない場合は同一トランザクション内で `UPDATE`/`DELETE` を実行し、コミットする。
 - この手順により、2つの同時リクエスト（例: 2人のownerが同時に相手を降格しようとする）が競合しても、後続のトランザクションは先行トランザクションのロック解放を待ってから最新の行データで再評価するため、owner が0人になることはない。
-- Drizzle での実装は `db.transaction(async (tx) => { ... })` 内で標準クエリビルダーの `.for('update')` を用いる（`tx.execute(sql\`...\`)` のような生SQL実行は使用しない。`docs/steering/tech.md` の「明示的な標準クエリビルダーを使用する」規約に準拠する。`db:generate`／スキーマ変更は不要、クエリレベルの対応のみ）。
+- `deleteOrganization` も同じロック手順（対象組織の全 `membership` 行を `.for('update', { of: membership })` でロック）を、自身の権限確認より先に実行する。`ON DELETE CASCADE` による組織削除時の全 `membership` 行削除と、`removeMember` 等の全行ロックとで対象範囲を一致させることで、部分的な行ロック（自分の行のみ等）による循環待ちデッドロックを避ける。
+- Drizzle での実装は `db.transaction(async (tx) => { ... })` 内で標準クエリビルダーの `.for('update', { of: membership })` を用いる（`tx.execute(sql\`...\`)` のような生SQL実行は使用しない。`docs/steering/tech.md` の「明示的な標準クエリビルダーを使用する」規約に準拠する。`db:generate`／スキーマ変更は不要、クエリレベルの対応のみ）。
 
 **Dependencies**
 - Inbound: `organization-member-management` Server Actions — 各操作の呼び出し元（P0）
