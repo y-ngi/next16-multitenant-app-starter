@@ -107,7 +107,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 2.7_
   - _Depends: 3, 4.1, 4.2_
 
-- [ ] 5.2 `SettingsPage` を実装する
+- [x] 5.2 `SettingsPage` を実装する
   - `resolveOrgContext` が返す `role` に基づき `LeaveOrganizationButton` を全ロールに、`OrganizationDangerZone`（owner限定セクション）を owner にのみ表示し、それぞれに対応する Server Action を配線する
   - 観測可能な完了条件: `/dashboard/org/[orgSlug]/settings` にアクセスすると member には自己脱退ボタンのみ、owner には自己脱退ボタンと自己降格・組織削除ボタンが表示される
   - _Requirements: 3.1, 3.2, 4.1, 4.2, 5.1, 5.2_
