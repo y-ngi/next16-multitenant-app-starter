@@ -113,7 +113,7 @@
   - _Requirements: 3.1, 3.2, 4.1, 4.2, 5.1, 5.2_
   - _Depends: 3, 4.3, 4.4_
 
-- [ ] 5.3 組織コンテキストページから /members と /settings への導線を追加する
+- [x] 5.3 組織コンテキストページから /members と /settings への導線を追加する
   - `src/app/dashboard/org/[orgSlug]/page.tsx` に、メンバー管理画面・設定画面への遷移リンクを追加する（既存のコンテキスト表示自体は変更しない）
   - 観測可能な完了条件: 組織コンテキストページを開くと `/members` と `/settings` へのリンクが表示され、クリックするとそれぞれの画面に遷移する
   - _Requirements: 1.1, 3.1_
