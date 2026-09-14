@@ -82,7 +82,6 @@ export type DeleteOrganizationResult =
 type OrganizationMemberManagementTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type LockableQuery<T> = {
   for?: (strength: 'update') => Promise<T>;
-  limit?: (count: number) => Promise<T>;
 };
 type ReturningQuery<T> = {
   returning?: (fields: Record<string, unknown>) => Promise<T>;
@@ -144,34 +143,29 @@ async function runInMemberManagementTransaction<T>(
 }
 
 async function executeLockingSelect<T>(query: LockableQuery<T>): Promise<T> {
-  if (typeof query.for === 'function') {
-    return query.for('update');
+  if (typeof query.for !== 'function') {
+    throw new TypeError('Locking select chain is missing for()');
   }
 
-  if (typeof query.limit === 'function') {
-    return query.limit(1);
-  }
-
-  throw new TypeError('Locking select chain is missing both for() and limit()');
+  return query.for('update');
 }
 
 async function executeMutationReturningIds<T extends { id: string }>(
   query: ReturningQuery<T[]>,
   fields: { id: typeof membership.id | typeof organization.id }
-): Promise<T[] | null> {
-  if (typeof query.returning === 'function') {
-    return query.returning(fields);
+): Promise<T[]> {
+  if (typeof query.returning !== 'function') {
+    throw new TypeError('Mutation returning chain is missing returning()');
   }
 
-  return null;
+  return query.returning(fields);
 }
 
-async function getViewableMembers(input: {
+async function getOrganizationMembersForView(input: {
   readonly headers: Headers;
   readonly organizationId: string;
-  readonly viewerRole: OrganizationRole;
   readonly errorLogPrefix: string;
-}): Promise<readonly ViewableMember[] | null> {
+}): Promise<readonly ViewableMemberSource[] | null> {
   const membersResult = await getOrganizationMembers({
     headers: input.headers,
     organizationId: input.organizationId,
@@ -186,7 +180,7 @@ async function getViewableMembers(input: {
     return null;
   }
 
-  return toViewableMembersForRole(membersResult.members, input.viewerRole);
+  return membersResult.members;
 }
 
 function toViewableMembersForRole(
@@ -281,10 +275,9 @@ export async function listMembersForViewer(input: MemberManagementActionInput): 
     };
   }
 
-  const members = await getViewableMembers({
+  const members = await getOrganizationMembersForView({
     headers: input.headers,
     organizationId: accessResult.organizationId,
-    viewerRole: accessResult.role,
     errorLogPrefix: '[listMembersForViewer]',
   });
 
@@ -295,11 +288,20 @@ export async function listMembersForViewer(input: MemberManagementActionInput): 
     };
   }
 
+  const currentViewerMembership = members.find((member) => member.userId === accessResult.userId);
+
+  if (!currentViewerMembership) {
+    return {
+      ok: false,
+      reason: 'not-member',
+    };
+  }
+
   return {
     ok: true,
     organizationId: accessResult.organizationId,
-    viewerRole: accessResult.role,
-    members,
+    viewerRole: currentViewerMembership.role,
+    members: toViewableMembersForRole(members, currentViewerMembership.role),
   };
 }
 
@@ -329,7 +331,7 @@ export async function removeMember(
       return nextMembers;
     },
     applyChange: async (tx) => {
-      await tx
+      const deleteQuery = tx
         .delete(membership)
         .where(
           and(
@@ -337,6 +339,18 @@ export async function removeMember(
             eq(membership.userId, input.targetUserId)
           )
         );
+
+      const deletedMembers = await executeMutationReturningIds(
+        deleteQuery as unknown as ReturningQuery<{ id: string }[]>,
+        { id: membership.id }
+      );
+
+      if (deletedMembers.length === 0) {
+        return {
+          ok: false,
+          reason: 'not-found',
+        };
+      }
     },
   });
 
@@ -408,7 +422,7 @@ export async function changeMemberRole(
         { id: membership.id }
       );
 
-      if (updatedMembers !== null && updatedMembers.length === 0) {
+      if (updatedMembers.length === 0) {
         return {
           ok: false,
           reason: 'not-found',
@@ -618,7 +632,7 @@ export async function deleteOrganization(
         { id: organization.id }
       );
 
-      if (deletedOrganizations !== null && deletedOrganizations.length === 0) {
+      if (deletedOrganizations.length === 0) {
         return {
           ok: false,
           reason: 'organization-not-found',
@@ -631,10 +645,6 @@ export async function deleteOrganization(
     });
   } catch (error) {
     console.error('[deleteOrganization] Failed to delete organization:', error);
-
-    return {
-      ok: false,
-      reason: 'not-found',
-    };
+    throw error;
   }
 }
