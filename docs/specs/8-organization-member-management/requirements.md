@@ -6,9 +6,9 @@
 
 ## Boundary Context
 
-- **In scope**: `/org/[orgSlug]` 配下のメンバー管理と設定、メンバー一覧、owner による招待の開始・削除・ロール変更・組織削除、メンバーの自己脱退、最低1人の owner の維持、権限不足時の表示。
-- **Out of scope**: 招待の作成・承認・拒否・有効期限・通知送信などの状態遷移、組織コンテキストの解決、実業務データ、監査ログ、課金、`owner` と `member` 以外のロール。
-- **Adjacent expectations**: organization-context が解決した所属済み組織コンテキストだけで利用する。招待の状態遷移は organization-lifecycle が担い、本機能は owner が招待を開始する導線を提供する。organization-foundation のサーバー側認可判定をすべての変更操作で利用する。
+- **In scope**: `/dashboard/org/[orgSlug]` 配下のメンバー管理と設定、メンバー一覧、owner による招待の開始・保留中招待の削除・ロール変更・組織削除、メンバーの自己脱退、最低1人の owner の維持、権限不足時の表示。
+- **Out of scope**: 招待の作成・承認・拒否・有効期限切れ・再招待時の自動無効化・通知送信などの状態遷移、組織コンテキストの解決、実業務データ、監査ログ、課金、`owner` と `member` 以外のロール。
+- **Adjacent expectations**: organization-context が解決した所属済み組織コンテキストだけで利用する。招待履歴の表示・招待の作成・承認・拒否・有効期限管理は organization-lifecycle が担い、本機能は owner が招待を開始する導線と、owner が保留中の招待を明示的に削除する操作のみを提供する。organization-foundation のサーバー側認可判定をすべての変更操作で利用する。
 
 ## Requirements
 
@@ -50,6 +50,8 @@
 | 4 | Event-Driven | When owner が対象組織の owner を member に変更する | the 組織メンバー管理機能 | shall 対象ユーザのロールを member に変更する。 |
 | 5 | Unwanted Behavior | If ロール変更またはメンバー削除によって対象組織の owner が0人になる | the 組織メンバー管理機能 | shall 操作を実行せず、少なくとも1人の owner を維持する必要があることを表示する。 |
 | 6 | Unwanted Behavior | If member が招待、削除、ロール変更を要求する | the 組織メンバー管理機能 | shall 操作を実行せず、権限がないことを表示する。 |
+| 7 | Event-Driven | When owner が対象組織の保留中の招待を削除する | the 組織メンバー管理機能 | shall その招待を無効化し、更新後の招待一覧を表示する。 |
+| 8 | Unwanted Behavior | If member が保留中の招待の削除を要求する | the 組織メンバー管理機能 | shall 招待を削除せず、権限がないことを表示する。 |
 
 ### Requirement 3: メンバーの自己脱退
 
