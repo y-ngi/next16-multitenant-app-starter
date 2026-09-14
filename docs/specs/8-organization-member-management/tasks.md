@@ -87,7 +87,7 @@
   - _Requirements: 2.7_
   - _Boundary: InvitationManager_
 
-- [ ] 4.3 (P) `LeaveOrganizationButton` を新規作成する
+- [x] 4.3 (P) `LeaveOrganizationButton` を新規作成する
   - 確認ダイアログ付きの自己脱退ボタンを実装し、成功時は `/dashboard/personal/organizations` へ遷移、`last-owner-protection` 失敗時は「別のメンバーを owner に変更する必要があります」を表示する
   - 観測可能な完了条件: ボタン押下→確認→実行の一連の操作がコンポーネントテストで検証でき、エラー時に指定メッセージが表示されることを確認できる
   - _Requirements: 3.1, 3.2, 3.3_
