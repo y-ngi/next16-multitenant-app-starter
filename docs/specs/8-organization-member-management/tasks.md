@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. Foundation: メンバー閲覧フィルタと owner 保護ガード
-- [ ] 1.1 ロール別メンバー閲覧フィルタ（`listMembersForViewer`）を実装する
+- [x] 1.1 ロール別メンバー閲覧フィルタ（`listMembersForViewer`）を実装する
   - `organization-member-management.ts` に `OrganizationRole` / `ViewableMember` / `ListMembersResult` などの型と、既存の `getOrganizationMembers`（`organization-lifecycle`）を呼び出した後 viewerRole が `owner` でない場合に `userEmail` を除去するラッパー関数を実装する
   - 非所属ユーザーからの呼び出しは `requireOrganizationAccessBySlug` の失敗結果をそのまま `not-member` 等の理由で返す
   - 観測可能な完了条件: owner 視点では `userEmail` を含む `ViewableMember[]` が返り、member 視点では `userEmail` が存在しない同じ配列が返ることをユニットテストで確認できる
