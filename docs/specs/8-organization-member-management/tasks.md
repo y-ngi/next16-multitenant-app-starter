@@ -100,7 +100,7 @@
   - _Boundary: OrganizationDangerZone_
 
 - [ ] 5. Integration: ページの結線とナビゲーション
-- [ ] 5.1 `MembersPage` を実装する
+- [x] 5.1 `MembersPage` を実装する
   - `resolveOrgContext` の結果を用いて `listMembersForViewer` を呼び出し、取得した `ViewableMember[]` を `MemberList` へ、owner の場合のみ `getInvitationsAction` で取得した招待一覧を `InvitationManager` へ、それぞれ props として渡す（`MembersPage` を唯一のデータ取得元とし、`MemberList` / `InvitationManager` はいずれも自ら取得しない）
   - 招待開始導線（既存の招待作成フローへの接続）を追加し、削除・ロール変更・招待キャンセルの Server Action を各コンポーネントへ配線する。各ミューテーション成功後は呼び出し側コンポーネントが `router.refresh()` を実行し、`MembersPage`（Server Component）の再実行によって最新データが反映される仕組みとする
   - 観測可能な完了条件: `/dashboard/org/[orgSlug]/members` にアクセスすると member はメンバー一覧のみ、owner はメール・操作ボタン・招待管理UIを含む画面が表示され、削除/ロール変更/招待キャンセル後に画面が最新状態へ更新される
@@ -142,3 +142,4 @@
 - Task 2.6/2.7: `removeMember`/`changeMemberRole`/`leaveOrganization`/`cancelInvitation`/`deleteOrganization` の service-layer ユニットテストは、TDDで各関数実装（2.1-2.5）と同時に追加済みだったため、追加実装は不要と判断（レビューで service 境界内の網羅性を確認済み）。招待一覧表示・組織コンテキスト遷移・cascade実効性の検証は frontend(4.x/5.x)/統合テスト(6.2)の責務であり、2.6/2.7 の境界外。
 - Task 4.1: `organization-list.tsx`（`/dashboard/personal` の概要表示、本specの境界外）が旧 `MemberList` props に依存していたため、design 契約の単一化に伴い read-only 表示（`viewerRole:'member'` 固定、操作ボタン非表示）として合わせて更新した。
 - Task 4.2: `InvitationManager` の招待作成成功通知を legacy caller（`organization-list.tsx`、クライアント側 state 管理）にも伝える必要があったため、`router.refresh()`（`MembersPage` 向け）に加えて任意の `onInvitationCreated` コールバックを追加し、両方の呼び出し元で一覧が正しく再取得されるようにした。
+- Task 5.1: `resolveOrgContext` を認可・組織情報の唯一の正準ソースとし、`listMembersForViewer` は `.members` の取得にのみ使用すること。招待取得失敗時は独自フォールバックUIを作らず、常に本物の `InvitationManager` を `invitations=[]` で描画すること（コンポーネントの責務を親ページへ持ち込まない）。
