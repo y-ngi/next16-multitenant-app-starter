@@ -2,9 +2,9 @@
 
 ## Overview
 
-**Purpose**: 本機能は、組織の owner が所属メンバーと保留中の招待を安全に管理し（招待開始・メンバー削除・ロール変更・招待キャンセル・組織削除）、全メンバーが自身の所属状況を確認・解消できるようにする。
-**Users**: 組織に所属する全ユーザー（member と owner）が `/dashboard/org/[orgSlug]/members` と `/dashboard/org/[orgSlug]/settings` を通じて利用する。
-**Impact**: `organization-context`（spec 7）が確立した所属済みコンテキストの内側に、初めての書き込み系操作（削除・更新）を追加する。既存の `organization-lifecycle`（spec 6）が提供する招待作成・招待履歴閲覧の UI コンポーネントを配線し直し、owner 向けの操作を追加する。
+**Purpose**: 本機能は、組織の owner が所属メンバーと保留中の招待を安全に管理し（招待開始・メンバー削除・ロール変更・招待キャンセル・組織削除）、全メンバーが自身の所属状況を確認・解消できるようにする。  
+**Users**: 組織に所属する全ユーザー（member と owner）が `/dashboard/org/[orgSlug]/members` と `/dashboard/org/[orgSlug]/settings` を通じて利用する。  
+**Impact**: `organization-context`（spec 7）が確立した所属済みコンテキストの内側に、初めての書き込み系操作（削除・更新）を追加する。既存の `organization-lifecycle`（spec 6）が提供する招待作成・招待履歴閲覧の UI コンポーネントを配線し直し、owner 向けの操作を追加する。  
 
 ### Goals
 - owner が対象組織のメンバーを削除・ロール変更でき、保留中の招待を削除できる。
@@ -314,7 +314,8 @@ export interface OrganizationMemberManagementService {
 | Requirements | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 2.7 |
 
 **Implementation Notes**
-- Integration: `resolveOrgContext` の結果（`organizationId`, `role`）を `listMembersForViewer` 呼び出しの引数として渡し、owner の場合のみ `getInvitationsAction` を追加で呼び出す。取得した `ViewableMember[]` を `MemberList` へ `members` props としてそのまま渡す（`MemberList` 自身は取得を行わない。詳細は Components and Interfaces / MemberList を参照）。
+- Integration: `resolveOrgContext` の結果（`organizationId`, `role`）を `listMembersForViewer` 呼び出しの引数として渡し、owner の場合のみ `getInvitationsAction` を追加で呼び出す。取得した `ViewableMember[]` を `MemberList` へ、招待一覧を `InvitationManager` へ、それぞれ `members` / `invitations` props としてそのまま渡す（`MemberList` と `InvitationManager` はいずれも自ら取得を行わない。詳細は Components and Interfaces / MemberList, InvitationManager を参照）。
+- Integration: 削除・ロール変更・招待キャンセルはいずれも Server Action 成功後に Next.js の `router.refresh()` を呼び出し、`MembersPage`（Server Component）を再実行させて最新の `members` / `invitations` を再取得・再描画する。クライアント側では一覧データを state として保持しない（`MemberList` / `InvitationManager` の props は常に最新の Server Component 実行結果に追従する）。
 - Validation: サーバー側の認可が最終判定であり、本ページの `role` に基づく表示制御は補助的なものである。
 - Risks: 該当なし（既存パターンの踏襲）。
 
@@ -353,7 +354,7 @@ export interface MemberListProps {
 - Integration: 既存実装は内部で `getOrganizationMembersAction` を呼び出して独自にメンバーを取得しているが、これを廃止する。`MemberList` は `members` props をそのまま描画するだけの表示コンポーネントへ変更し、データ取得責務を完全に `MembersPage` 側へ移す（`useEffect` によるフェッチを削除）。これにより、`viewerRole` が `owner` でない場合に `userEmail` が props レベルで既に存在しないことをコンポーネントツリー上で保証できる（Critical Issue 1 対応）。
 - Integration: `member.userId === viewerUserId` の行では削除・ロール変更ボタンを描画しない（自分自身に対する操作は `OrganizationDangerZone` に一本化し、`MemberList` 経由では実行できないようにする。4.1/4.2 の実装場所の重複を避けるための境界）。
 - Integration: `userEmail` は `string | undefined` とし、値が存在する行のみメールアドレスを描画する（値の有無は `listMembersForViewer` が既に決定済み）。`viewerRole === 'owner'` のときのみ操作ボタン列を描画する（UI側の表示制御は補助であり、最終的な可否はサーバー側の `requireOrganizationAccessBySlug` が担う）。
-- Integration: 削除・ロール変更成功後の一覧更新は、`onRemoveMember`/`onChangeRole` の戻り値 (`MemberMutationResult.members`) を親コンポーネント（`MembersPage`）が受け取り、state を更新して再描画する（`MemberList` 自身は再フェッチしない）。
+- Integration: 削除・ロール変更成功後は、`onRemoveMember`/`onChangeRole` の戻り値 (`MemberMutationResult`) で成否のみを判定し、成功時は `router.refresh()` を呼び出して `MembersPage`（Server Component）を再実行させる（`MemberList` 自身は一覧データを state として保持・再フェッチしない。MembersPage の Implementation Notes を参照）。
 - Validation: 削除・ロール変更ボタン押下時は確認ダイアログを表示してから `onRemoveMember` / `onChangeRole` を呼び出す。
 - Risks: 既存のテスト（`member-list.test.tsx`）は内部フェッチ（`getOrganizationMembersAction` のモック）を前提に書かれているため、props 駆動型への変更に伴い全面的な書き換えが必要。
 
@@ -365,8 +366,9 @@ export interface MemberListProps {
 | Requirements | 2.1, 2.7 |
 
 **Implementation Notes**
-- Integration: `status === 'pending'` の行にのみ「招待を取り消す」ボタンを描画し、押下時に `cancelInvitationAction` を呼び出して一覧を再取得する。
-- Validation: キャンセル後は該当行を `canceled` として即時反映するか、一覧を再フェッチする。
+- Integration: 招待一覧は `MembersPage` が `getInvitationsAction` で取得した結果を `invitations` props として受け取り、`InvitationManager` 自身は招待一覧を取得しない（`MemberList` と同様、`MembersPage` を唯一のデータ取得元とする設計上の一貫性のため）。
+- Integration: `status === 'pending'` の行にのみ「招待を取り消す」ボタンを描画し、押下時に `cancelInvitationAction` を呼び出す。成功時は `router.refresh()` を呼び出して `MembersPage` を再実行させ、最新の招待一覧を再取得する（`InvitationManager` 自身は再フェッチしない）。
+- Validation: キャンセル失敗時（`invitation-not-pending` 等）はエラーメッセージを表示し、一覧はそのまま維持する。
 
 #### LeaveOrganizationButton（新規）
 

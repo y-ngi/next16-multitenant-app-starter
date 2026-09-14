@@ -100,7 +100,17 @@
 - **Trade-offs**: メンバー一覧画面から直接自己降格できず、Settings画面への遷移が1手間増えるが、誤操作防止の観点ではむしろ望ましい。
 - **Follow-up**: なし。サービス層の `changeMemberRole` 自体は対象ユーザーを限定しないため、UI側の制約のみで境界を維持する。
 
+### Decision: 一覧再描画は `router.refresh()` によるサーバー再取得に統一する（クライアント側で一覧state を保持しない）
+- **Context**: `/kiro-spec-tasks` のタスクグラフ健全性レビューで、「`MembersPage`（Server Component）が `MemberMutationResult.members` を受け取って state を更新し再描画する」という記述が、Server Component は React state を持てないため実装不能であることが判明した。また `InvitationManager` の招待一覧取得責務が `MembersPage` と重複・曖昧であることも指摘された。
+- **Alternatives Considered**:
+  1. `MembersPage` の内側に新規のクライアントラッパーコンポーネントを追加し、そこで一覧 state を保持する
+  2. Next.js App Router の `router.refresh()` を用い、ミューテーション成功後にサーバー側を再実行させて最新の props を再取得する（クライアント側は state を持たない）
+- **Selected Approach**: 2を採用。
+- **Rationale**: 新規のラッパーコンポーネントを追加するより実装が単純であり、既存の Next.js App Router パターン（Server Component + Server Action + `router.refresh()`）に沿う。`MemberList` / `InvitationManager` は「props をそのまま描画するだけ」という既存の境界（Critical Issue 1 対応）をそのまま維持できる。
+- **Trade-offs**: ミューテーションごとにページ全体の Server Component 再実行が発生するが、対象ページの規模・更新頻度を考えると許容範囲。
+- **Follow-up**: `InvitationManager` の招待一覧取得責務も `MemberList` と同様に `MembersPage` に一本化し、`InvitationManager` は自ら取得しないことを design.md に明記した。
 
+## Risks & Mitigations
 - owner 最小数チェックのタイミングと実際の削除/更新の間で競合状態（同時に2人が最後の owner を降格しようとする）が発生しうる — `SELECT ... FOR UPDATE` による行ロックで対象組織の membership 行を直列化し、単一 SQL トランザクション内でカウント確認と更新を行うことで整合性を担保する（詳細は Design Decisions を参照）。
 - 招待キャンセル対象が既に `accepted`/`expired` などへ遷移済みの場合の扱いが曖昧になりうる — `status = 'pending'` の場合のみキャンセル可能とし、それ以外は明示的なエラーを返す。
 - 組織削除の同時実行（2つのリクエストが同時に削除を要求）— 2回目の削除は対象組織が既に存在しないため `organization-not-found` 相当のエラーとして扱う。
