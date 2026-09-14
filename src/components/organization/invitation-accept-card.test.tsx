@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { InvitationAcceptCard, type InvitationDetails } from './invitation-accept-card';
 
 const mockPush = vi.fn();
@@ -37,6 +37,10 @@ describe('InvitationAcceptCard', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('未ログイン時の導線', () => {
@@ -191,6 +195,51 @@ describe('InvitationAcceptCard', () => {
       await waitFor(() => {
         expect(respondToInvitationAction).toHaveBeenCalledWith('token-1', true);
       });
+    });
+
+    it('承諾完了後に /dashboard/personal へ遷移すること', async () => {
+      vi.useFakeTimers();
+      vi.mocked(respondToInvitationAction).mockResolvedValueOnce({ ok: true });
+
+      render(
+        <InvitationAcceptCard
+          token="token-1"
+          invitation={invitation}
+          isLoggedIn={true}
+          currentUserEmail={invitation.email}
+          inviteeHasAccount={true}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: '承諾する' }));
+
+      await Promise.resolve();
+      expect(respondToInvitationAction).toHaveBeenCalledWith('token-1', true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(mockPush).toHaveBeenCalledWith('/dashboard/personal');
+    });
+
+    it('拒否完了後の戻り先リンクが /dashboard/personal を指すこと', async () => {
+      vi.mocked(respondToInvitationAction).mockResolvedValueOnce({ ok: true });
+
+      render(
+        <InvitationAcceptCard
+          token="token-1"
+          invitation={invitation}
+          isLoggedIn={true}
+          currentUserEmail={invitation.email}
+          inviteeHasAccount={true}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: '拒否する' }));
+
+      const dashboardLink = await screen.findByRole('link', { name: 'ダッシュボードに戻る' });
+      expect(dashboardLink).toHaveAttribute('href', '/dashboard/personal');
     });
   });
 });

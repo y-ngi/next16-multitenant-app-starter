@@ -6,11 +6,11 @@
 
 ## Current State
 
-保護ページは `/dashboard` のみで、ログイン済みかだけを確認している。`/org/[orgSlug]` のルート、組織切替、所属者限定のガードは存在しない。
+保護ページは `/dashboard` のみで、ログイン済みかだけを確認している。`/dashboard/org/[orgSlug]` のルート、組織切替、所属者限定のガードは存在しない。
 
 ## Desired Outcome
 
-ユーザは `/dashboard` と `/personal/organizations` で所属組織を選択し、`/org/[orgSlug]` 以下でその組織のコンテキストを利用できる。`owner` と `member` の両方が利用できる。組織コンテキストは URL の slug を唯一の情報源とし、共通ヘッダーには現在アクセス中の組織名を常時表示する。サーバーは slug から組織を解決して現在ユーザの所属を必ず検証する。非所属ユーザと存在しない組織には、組織情報を到達させず、同じ404画面を表示する。
+ユーザは `/dashboard/personal` と `/dashboard/personal/organizations` で所属組織を選択し、`/dashboard/org/[orgSlug]` 以下でその組織のコンテキストを利用できる。`owner` と `member` の両方が利用できる。組織コンテキストは URL の slug を唯一の情報源とし、共通ヘッダーには現在アクセス中の組織名を常時表示する。サーバーは slug から組織を解決して現在ユーザの所属を必ず検証する。非所属ユーザと存在しない組織には、組織情報を到達させず、同じ404画面を表示する。
 
 ## Approach
 
@@ -18,7 +18,7 @@ organization-foundation の認可ヘルパーと organization-lifecycle の所�
 
 ## Scope
 
-- **In**: 組織選択、`/org/[orgSlug]` のルート構造、slug解決、サーバー側の所属ガード、未所属/非所属時のUX。
+- **In**: 組織選択、`/dashboard/org/[orgSlug]` のルート構造、slug解決、サーバー側の所属ガード、未所属/非所属時のUX。
 - **Out**: メンバー管理の詳細操作、実業務データのクエリと可視性、組織作成と招待の状態遷移。
 
 ## Boundary Candidates
@@ -39,8 +39,8 @@ organization-foundation の認可ヘルパーと organization-lifecycle の所�
 ## Existing Spec Touchpoints
 
 - **Extends**: organization-foundation、organization-lifecycle
-- **Adjacent**: `src/app/dashboard/page.tsx`、`docs/sitemap.md`
+- **Adjacent**: `src/app/dashboard/page.tsx`（本仕様で `src/app/dashboard/personal/page.tsx` へ移設）、`docs/sitemap.md`
 
 ## Constraints
 
-組織コンテキストは URL の slug を唯一の情報源とし、直近の選択状態などの補助情報で組織を確定しない。`/org/[orgSlug]` 配下の共通ヘッダーには、slug ではなく利用者が識別できる現在の組織名を常時表示する。組織IDをクライアント入力だけから信頼しない。組織情報・操作の読み込み前に、リクエストセッションとルートから解決した組織の所属をサーバーで検証する。所属組織がない場合は、組織作成への導線と招待待ち案内を表示する。
+組織コンテキストは URL の slug を唯一の情報源とし、直近の選択状態などの補助情報で組織を確定しない。`/dashboard/org/[orgSlug]` 配下の共通ヘッダーには、slug ではなく利用者が識別できる現在の組織名を常時表示する。組織IDをクライアント入力だけから信頼しない。組織情報・操作の読み込み前に、リクエストセッションとルートから解決した組織の所属をサーバーで検証する。所属組織がない場合は、組織作成への導線と招待待ち案内を表示する。

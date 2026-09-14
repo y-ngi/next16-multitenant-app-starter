@@ -260,7 +260,7 @@ describe('AuthForm', () => {
       });
     });
 
-    it('should redirect to /dashboard when callbackURL is not provided on successful login', async () => {
+    it('should redirect to /dashboard/personal when callbackURL is not provided on successful login', async () => {
       const { authClient } = await import('@/lib/auth-client');
 
       const mockSignIn = vi.fn().mockResolvedValue({
@@ -286,12 +286,12 @@ describe('AuthForm', () => {
       fireEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith('/dashboard');
+        expect(mockPush).toHaveBeenCalledWith('/dashboard/personal');
         expect(mockRefresh).toHaveBeenCalled();
       });
     });
 
-    it('should redirect to /dashboard after 2FA verification when callbackURL is not provided', async () => {
+    it('should redirect to /dashboard/personal after 2FA verification when callbackURL is not provided', async () => {
       const { authClient, twoFactor } = await import('@/lib/auth-client');
 
       const mockSignIn = vi.fn().mockResolvedValue({
@@ -336,7 +336,7 @@ describe('AuthForm', () => {
 
       await waitFor(() => {
         expect(mockVerifyOtp).toHaveBeenCalledWith({ code: '123456' });
-        expect(mockPush).toHaveBeenCalledWith('/dashboard');
+        expect(mockPush).toHaveBeenCalledWith('/dashboard/personal');
         expect(mockRefresh).toHaveBeenCalled();
       });
     });

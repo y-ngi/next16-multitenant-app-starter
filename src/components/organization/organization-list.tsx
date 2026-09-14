@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { getUserOrganizationsAction } from '@/app/actions/organization';
 import { toast } from 'sonner';
 import { MemberList } from './member-list';
@@ -120,7 +121,7 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
       <Card>
         <CardContent className="pt-6">
           <p className="text-center text-muted-foreground">
-            所属している組織がありません。新しい組織を作成してください。
+          所属している組織がありません。新しい組織を作成するか、既存の組織からの招待をお待ちください。
           </p>
         </CardContent>
       </Card>
@@ -150,6 +151,12 @@ export function OrganizationList({ refreshKey }: OrganizationListProps) {
                 {new Date(org.joinedAt).toLocaleDateString('ja-JP')} に参加
               </p>
               <div className="flex flex-wrap gap-2">
+                <Link
+                  href={`/dashboard/org/${org.slug}`}
+                  className={buttonVariants({ variant: 'outline', size: 'sm', className: 'gap-2' })}
+                >
+                  組織を開く
+                </Link>
                 <Button
                   variant="outline"
                   size="sm"

@@ -80,6 +80,39 @@ describe('OrganizationList', () => {
     });
   });
 
+  it('各組織カードに組織コンテキストを開くリンクを表示すること', async () => {
+    const mockOrganizations = [
+      {
+        id: 'org-1',
+        name: 'Test Org 1',
+        slug: 'test-org-1',
+        role: 'owner' as const,
+        joinedAt: new Date('2024-01-01'),
+      },
+      {
+        id: 'org-2',
+        name: 'Test Org 2',
+        slug: 'test-org-2',
+        role: 'member' as const,
+        joinedAt: new Date('2024-01-02'),
+      },
+    ];
+
+    vi.mocked(getUserOrganizationsAction).mockResolvedValueOnce({
+      ok: true,
+      organizations: mockOrganizations,
+    });
+
+    render(<OrganizationList />);
+
+    await waitFor(() => {
+      const openLinks = screen.getAllByRole('link', { name: '組織を開く' });
+      expect(openLinks).toHaveLength(2);
+      expect(openLinks[0]).toHaveAttribute('href', '/dashboard/org/test-org-1');
+      expect(openLinks[1]).toHaveAttribute('href', '/dashboard/org/test-org-2');
+    });
+  });
+
   it('ロールバッジを表示すること', async () => {
     const mockOrganizations = [
       {
@@ -112,9 +145,9 @@ describe('OrganizationList', () => {
     render(<OrganizationList />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText('所属している組織がありません。新しい組織を作成してください。')
-      ).toBeInTheDocument();
+      expect(screen.getByText(/所属している組織がありません/)).toBeInTheDocument();
+      expect(screen.getByText(/新しい組織を作成/)).toBeInTheDocument();
+      expect(screen.getByText(/招待をお待ちください/)).toBeInTheDocument();
     });
   });
 

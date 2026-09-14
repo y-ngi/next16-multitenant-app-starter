@@ -9,7 +9,7 @@ Next.js App Router をアプリケーションの入口にし、画面・再利�
 ### App Router
 **配置**: `src/app/`  
 **役割**: レイアウト、ページ、グローバルスタイル、および URL に対応する画面を定義する。  
-**例**: `src/app/dashboard/page.tsx` でサーバー側にセッションを取得し、未認証時はログイン画面へ遷移させる。
+**例**: `src/app/dashboard/personal/page.tsx` でサーバー側にセッションを取得し、未認証時はログイン画面へ遷移させる。
 
 ### コンポーネント
 **配置**: `src/components/`  
