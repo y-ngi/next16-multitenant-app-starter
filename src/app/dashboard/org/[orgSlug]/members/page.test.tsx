@@ -254,9 +254,38 @@ describe('MembersPage', () => {
       userId: 'user-1',
       role: 'owner',
     });
+
     mockListMembersForViewer.mockResolvedValueOnce({
       ok: false,
       reason: 'not-found',
+    });
+
+    const page = await MembersPage({
+      params: Promise.resolve({ orgSlug: 'acme' }),
+    });
+
+    render(page);
+
+    expect(mockNotFound).not.toHaveBeenCalled();
+    expect(mockGetInvitationsAction).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('member-list')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('メンバー一覧を取得できませんでした。時間をおいて再読み込みしてください。')
+    ).toBeInTheDocument();
+  });
+
+  it('メンバー一覧取得が system-failure の場合も 404 ではなくエラー表示を行うこと', async () => {
+    mockResolveOrgContext.mockResolvedValueOnce({
+      ok: true,
+      organizationId: 'org-1',
+      organizationName: 'Acme Inc.',
+      organizationSlug: 'acme',
+      userId: 'user-1',
+      role: 'owner',
+    });
+    mockListMembersForViewer.mockResolvedValueOnce({
+      ok: false,
+      reason: 'system-failure',
     });
 
     const page = await MembersPage({

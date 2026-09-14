@@ -58,6 +58,7 @@ vi.mock('@/lib/organization-authz', () => ({
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { organization, membership } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { sendInvitationEmail, sendAcceptanceNotificationEmail } from '@/lib/invitation-mailer';
 import { requireOrganizationAccess } from '@/lib/organization-authz';
 
@@ -66,6 +67,7 @@ function createSelectChain<T>(rows: T[], error?: Error) {
   const chain: any = {
     from: vi.fn(() => chain),
     where: vi.fn(() => chain),
+    for: vi.fn(() => chain),
     limit: vi.fn(() => chain),
     innerJoin: vi.fn(() => chain),
     then: promise.then.bind(promise),
@@ -1207,8 +1209,10 @@ describe('Organization Lifecycle', () => {
       const mockUpdate = vi.fn().mockReturnValue({
         set: mockUpdateSet,
       });
+      const organizationLockChain = createSelectChain([{ id: organizationId }]);
 
       const mockTx = {
+        select: vi.fn().mockReturnValue(organizationLockChain),
         insert: mockInsert,
         update: mockUpdate,
       };
@@ -1239,6 +1243,11 @@ describe('Organization Lifecycle', () => {
       expect(result.ok).toBe(true);
       expect(result.error).toBeUndefined();
       expect(db.transaction).toHaveBeenCalled();
+      expect(mockTx.select).toHaveBeenCalledWith({ id: organization.id });
+      expect(organizationLockChain.from).toHaveBeenCalledWith(organization);
+      expect(organizationLockChain.where).toHaveBeenCalledWith(eq(organization.id, organizationId));
+      expect(organizationLockChain.for).toHaveBeenCalledWith('update');
+      expect(organizationLockChain.limit).toHaveBeenCalledWith(1);
       expect(sendAcceptanceNotificationEmail).toHaveBeenCalled();
     });
 
@@ -1278,8 +1287,10 @@ describe('Organization Lifecycle', () => {
       const mockUpdate = vi.fn().mockReturnValue({
         set: mockUpdateSet,
       });
+      const organizationLockChain = createSelectChain([{ id: organizationId }]);
 
       const mockTx = {
+        select: vi.fn().mockReturnValue(organizationLockChain),
         insert: mockInsert,
         update: mockUpdate,
       };
@@ -1296,6 +1307,7 @@ describe('Organization Lifecycle', () => {
         ok: false,
         error: 'Invitation has already been used',
       });
+      expect(mockTx.select).toHaveBeenCalledWith({ id: organization.id });
       expect(mockInsert).not.toHaveBeenCalled();
       expect(sendAcceptanceNotificationEmail).not.toHaveBeenCalled();
     });
@@ -1371,8 +1383,10 @@ describe('Organization Lifecycle', () => {
       const mockUpdate = vi.fn().mockReturnValue({
         set: mockUpdateSet,
       });
+      const organizationLockChain = createSelectChain([{ id: organizationId }]);
 
       const mockTx = {
+        select: vi.fn().mockReturnValue(organizationLockChain),
         insert: mockInsert,
         update: mockUpdate,
       };

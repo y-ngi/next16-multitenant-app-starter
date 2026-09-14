@@ -673,6 +673,9 @@ export async function respondToInvitation(
     // 6. Handle acceptance
     if (accept) {
       // Create membership and update invitation within a transaction.
+      // Lock organization row first so lock order matches deleteOrganization:
+      // organization/membership -> invitation, avoiding circular waits with
+      // ON DELETE CASCADE on invitation rows during organization deletion.
       // The invitation status update is conditioned on the invitation still
       // being 'pending' at commit time and its affected-row count is checked:
       // this closes a race where a concurrent cancelInvitation (service:
@@ -684,6 +687,13 @@ export async function respondToInvitation(
       await db.transaction(async (tx) => {
         const membershipId = randomUUID();
         const createdAt = new Date();
+
+        await tx
+          .select({ id: organization.id })
+          .from(organization)
+          .where(eq(organization.id, inv.organizationId))
+          .for('update')
+          .limit(1);
 
         const updatedInvitations = await tx
           .update(invitation)

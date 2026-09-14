@@ -39,7 +39,7 @@ export default async function MembersPage({ params }: MembersPageProps) {
   });
 
   if (!membersResult.ok) {
-    if (membersResult.reason === 'not-found') {
+    if (membersResult.reason === 'not-found' || membersResult.reason === 'system-failure') {
       return (
         <Card>
           <CardHeader>
