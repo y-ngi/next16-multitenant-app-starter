@@ -193,9 +193,18 @@ flowchart TD
 
 **Responsibilities & Constraints**
 - 全ての公開関数はまず `requireOrganizationAccessBySlug` を呼び出し、認可に失敗した場合は即座に失敗理由を返す（ミューテーションの実行前に必ず認可判定を行う）。
-- owner 数の不変条件（常に1以上）を検証する内部ガード `ensureOwnerRemainsAfterChange` を、削除・ロール変更・自己脱退の全操作から共有する。
+- owner 数の不変条件（常に1以上）を検証する内部ガード `ensureOwnerRemainsAfterChange` を、削除・ロール変更・自己脱退の全操作から共有する。このガードは対象組織の `membership` 行を `SELECT ... FOR UPDATE` で明示的に行ロックしてから owner 数を数え、同一トランザクション内で更新を確定させる（同時実行時に owner 0人化を防ぐ。詳細は Concurrency Control を参照）。
 - 組織削除は `organization` 行を削除するのみとし、`membership` / `invitation` は既存の `onDelete: cascade` 制約に委ねる（アプリケーション層で個別削除を行わない）。
-- メンバー一覧の閲覧は既存の `getOrganizationMembers`（`organization-lifecycle`）を呼び出した後、viewerRole が `owner` でない場合は各要素の `userEmail` を除去してから返す。
+- メンバー一覧の閲覧は既存の `getOrganizationMembers`（`organization-lifecycle`）を呼び出した後、viewerRole が `owner` でない場合は各要素の `userEmail` を除去してから返す。この結果（`ViewableMember[]`）はページ側で1度だけ取得し、`MemberList` へ props として渡す。`MemberList` はメンバー取得を自ら行わない（Critical Issue 1 対応、Components and Interfaces / MemberList を参照）。
+
+**Concurrency Control（owner 最小数不変条件の保護）**
+- `removeMember` / `changeMemberRole` / `leaveOrganization` は以下の手順を単一の `db.transaction` 内で実行する:
+  1. `SELECT id, role FROM membership WHERE organization_id = $1 FOR UPDATE` で対象組織の全 `membership` 行を行ロックする（PostgreSQL の行ロックにより、同一組織に対する同時トランザクションは後続がブロックされ、直列化される）。
+  2. ロック取得後の行データを使って、操作後の owner 数を計算する（対象行の削除/ロール変更をシミュレートしてから `role = 'owner'` の件数を数える）。
+  3. 操作後の owner 数が 0 になる場合は `ROLLBACK` 相当（例外throw等でtransaction関数から抜ける）し、`last-owner-protection` を返す。
+  4. 0 にならない場合は同一トランザクション内で `UPDATE`/`DELETE` を実行し、コミットする。
+- この手順により、2つの同時リクエスト（例: 2人のownerが同時に相手を降格しようとする）が競合しても、後続のトランザクションは先行トランザクションのロック解放を待ってから最新の行データで再評価するため、owner が0人になることはない。
+- Drizzle での実装は `db.transaction(async (tx) => { ... })` 内で `tx.execute(sql`SELECT ... FOR UPDATE`)` 相当の明示的ロック付きクエリを発行する（`db:generate`／スキーマ変更は不要、クエリレベルの対応のみ）。
 
 **Dependencies**
 - Inbound: `organization-member-management` Server Actions — 各操作の呼び出し元（P0）
@@ -271,7 +280,7 @@ export interface OrganizationMemberManagementService {
 **Implementation Notes**
 - Integration: `removeMember` / `changeMemberRole` / `leaveOrganization` は `db.transaction` 内で対象メンバーシップ行を行ロック相当の `SELECT ... FOR UPDATE` 的な直列実行（Drizzle トランザクション内での select→判定→update）で処理し、同時実行による owner 数不整合を防ぐ。
 - Validation: `changeMemberRole` の `newRole` は `'owner' | 'member'` のみ許可し、それ以外の値は型レベルで排除する。
-- Risks: 同時に複数の owner 変更リクエストが競合した場合はトランザクション分離レベル（デフォルトの Read Committed）で後勝ちになるが、各トランザクション内で owner 数を再計算してから確定させるため、最終的に owner 0人になることはない。
+- Risks: 同時に複数の owner 変更リクエストが競合した場合、`SELECT ... FOR UPDATE` による行ロックで後続トランザクションが先行トランザクションのコミットまでブロックされ、直列に owner 数を再評価してから確定させるため、最終的に owner 0人になることはない（詳細は Concurrency Control を参照）。行ロック待ちが長時間化するリスクはあるが、対象は単一組織内の少数行の更新であり許容範囲とする。
 
 ### Backend / Server Action
 
@@ -304,7 +313,7 @@ export interface OrganizationMemberManagementService {
 | Requirements | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 2.7 |
 
 **Implementation Notes**
-- Integration: `resolveOrgContext` の結果（`organizationId`, `role`）を `listMembersForViewer` 呼び出しの引数として渡し、owner の場合のみ `getInvitationsAction` を追加で呼び出す。
+- Integration: `resolveOrgContext` の結果（`organizationId`, `role`）を `listMembersForViewer` 呼び出しの引数として渡し、owner の場合のみ `getInvitationsAction` を追加で呼び出す。取得した `ViewableMember[]` を `MemberList` へ `members` props としてそのまま渡す（`MemberList` 自身は取得を行わない。詳細は Components and Interfaces / MemberList を参照）。
 - Validation: サーバー側の認可が最終判定であり、本ページの `role` に基づく表示制御は補助的なものである。
 - Risks: 該当なし（既存パターンの踏襲）。
 
@@ -325,13 +334,25 @@ export interface OrganizationMemberManagementService {
 
 | Field | Detail |
 |-------|--------|
-| Intent | メンバー一覧の各行を表示し、owner向けの削除・ロール変更操作を提供する |
+| Intent | 親（MembersPage）から渡された `ViewableMember[]` を表示し、owner向けの削除・ロール変更操作を提供する。自らメンバー情報を取得しない |
 | Requirements | 1.1, 1.2, 1.3, 2.2, 2.3, 2.4 |
 
+**Component Contract**
+```typescript
+export interface MemberListProps {
+  readonly members: readonly ViewableMember[]; // MembersPage が listMembersForViewer から取得し、既にロール別フィルタ済みのデータを渡す
+  readonly viewerRole: OrganizationRole;
+  readonly onRemoveMember: (targetUserId: string) => Promise<MemberMutationResult>;
+  readonly onChangeRole: (targetUserId: string, newRole: OrganizationRole) => Promise<MemberMutationResult>;
+}
+```
+
 **Implementation Notes**
-- Integration: `userEmail` を `string | undefined` に変更し、値が存在する行のみメールアドレスを描画する。`viewerRole === 'owner'` のときのみ操作ボタン列を描画する。
+- Integration: 既存実装は内部で `getOrganizationMembersAction` を呼び出して独自にメンバーを取得しているが、これを廃止する。`MemberList` は `members` props をそのまま描画するだけの表示コンポーネントへ変更し、データ取得責務を完全に `MembersPage` 側へ移す（`useEffect` によるフェッチを削除）。これにより、`viewerRole` が `owner` でない場合に `userEmail` が props レベルで既に存在しないことをコンポーネントツリー上で保証できる（Critical Issue 1 対応）。
+- Integration: `userEmail` は `string | undefined` とし、値が存在する行のみメールアドレスを描画する（値の有無は `listMembersForViewer` が既に決定済み）。`viewerRole === 'owner'` のときのみ操作ボタン列を描画する（UI側の表示制御は補助であり、最終的な可否はサーバー側の `requireOrganizationAccessBySlug` が担う）。
+- Integration: 削除・ロール変更成功後の一覧更新は、`onRemoveMember`/`onChangeRole` の戻り値 (`MemberMutationResult.members`) を親コンポーネント（`MembersPage`）が受け取り、state を更新して再描画する（`MemberList` 自身は再フェッチしない）。
 - Validation: 削除・ロール変更ボタン押下時は確認ダイアログを表示してから `onRemoveMember` / `onChangeRole` を呼び出す。
-- Risks: 既存のテスト（`member-list.test.tsx`）が `userEmail` を必須文字列として検証しているため、型変更に伴うテスト更新が必要。
+- Risks: 既存のテスト（`member-list.test.tsx`）は内部フェッチ（`getOrganizationMembersAction` のモック）を前提に書かれているため、props 駆動型への変更に伴い全面的な書き換えが必要。
 
 #### InvitationManager（変更）
 
@@ -390,11 +411,12 @@ export interface OrganizationMemberManagementService {
 
 - **Unit Tests**（`organization-member-management.ts`）:
   - `ensureOwnerRemainsAfterChange` が唯一の owner を対象にした降格・削除・脱退を拒否し、複数owner存在時は許可することを検証する。
+  - 2人の owner が同時に互いを降格する2つのリクエストを並行実行しても、最終的に owner 数が0にならず、片方が `last-owner-protection` で拒否されることを検証する（`SELECT ... FOR UPDATE` による直列化の実効性を確認する。実DB接続が必要なテストとして、既存のDB統合テスト方式（`db.transaction` を使う既存テストパターン）に倣う）。
   - `listMembersForViewer` が owner 閲覧時のみ `userEmail` を含み、member 閲覧時は含まないことを検証する。
   - `cancelInvitation` が `pending` 以外の状態を拒否し、`pending` のみキャンセルできることを検証する。
   - `deleteOrganization` が owner以外からの呼び出しを拒否し、owner呼び出し時に組織行が削除されることを検証する。
 - **Integration Tests**:
-  - MembersPage が member ロールではメールアドレス非表示・操作ボタン非表示、owner ロールではメールアドレス表示・操作ボタン表示となることを、実際の `page.tsx` + `MemberList` + `InvitationManager` を合成して検証する。
+  - MembersPage が member ロールではメールアドレス非表示・操作ボタン非表示、owner ロールではメールアドレス表示・操作ボタン表示となることを、実際の `page.tsx` + `MemberList` + `InvitationManager` を合成して検証する。特に `MemberList` が独自にメンバー取得を行わず、`MembersPage` から渡された `members` props のみを描画することを確認する（`MemberList` へメール付きデータを渡した場合とメールなしデータを渡した場合の両方をテストし、コンポーネント自身がフィルタ漏れを起こさないことを検証する）。
   - 組織削除後に `resolveOrgContext` を再実行すると `organization-not-found` を返す（カスケード削除の実効性を確認する）。
 - **E2E/UI Tests**:
   - owner がメンバーを削除するとメンバー一覧から即座に消えることを確認する。

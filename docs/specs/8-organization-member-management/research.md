@@ -60,6 +60,16 @@
 - **Rationale**: 不変条件が1箇所に定義されるため、将来のロール仕様変更（例: owner 以外のロール追加）時の修正箇所を最小化できる。
 - **Trade-offs**: 抽象化のための1段階の関数呼び出しが増えるが、可読性・保守性への影響は軽微。
 
+### Decision: owner 数の同時実行安全性は `SELECT ... FOR UPDATE` による行ロックで担保する
+- **Context**: `/kiro-validate-design` の初回レビューで、単純な「カウント→更新」方式では、2人の owner が同時に互いを降格・削除しようとした場合に PostgreSQL のデフォルト分離レベル（Read Committed）下で owner が0人になり得る（Critical Issue として指摘）。
+- **Alternatives Considered**:
+  1. 分離レベルを `SERIALIZABLE` に引き上げ、シリアライズ失敗時にアプリケーション側でリトライする
+  2. 対象組織の `membership` 行を `SELECT ... FOR UPDATE` で明示的に行ロックしてから owner 数を判定し、同一トランザクション内で更新を確定させる
+- **Selected Approach**: 2を採用。
+- **Rationale**: `SERIALIZABLE` はDB全体の分離レベル変更とリトライロジックの実装コストが高く、本機能が必要とするのは「対象組織内の owner 数」という単一の集約に閉じた整合性のみである。行ロックは対象範囲を組織単位に限定でき、既存の `db.transaction`（Drizzle）パターンをそのまま拡張できる。
+- **Trade-offs**: 同一組織に対する同時操作はロック待ちにより直列化されるため、極端に頻繁な同時操作がある場合はレイテンシが増加するが、組織あたりの管理操作頻度は低いと想定されるため許容する。
+- **Follow-up**: 実装時に Drizzle の生SQL実行 (`tx.execute(sql`...`)`) で `FOR UPDATE` 句を発行できることを確認する。
+
 ### Decision: 組織コンテキストからの「移動」はサーバー側の強制セッション終了ではなく、次回アクセス時のアクセス制御で実現する
 - **Context**: Requirement 3.1/3.2/5.1 は脱退・削除後に「組織コンテキストから移動させる」ことを求めるが、本アプリにはリアルタイムプッシュ基盤（WebSocket 等）がない。
 - **Alternatives Considered**:
@@ -71,9 +81,10 @@
 - **Follow-up**: 将来リアルタイム要件が追加された場合は再設計が必要。
 
 ## Risks & Mitigations
-- owner 最小数チェックのタイミングと実際の削除/更新の間で競合状態（同時に2人が最後の owner を降格しようとする）が発生しうる — 単一 SQL トランザクション内でカウント確認と更新を行い、DB のトランザクション分離で整合性を担保する。
+- owner 最小数チェックのタイミングと実際の削除/更新の間で競合状態（同時に2人が最後の owner を降格しようとする）が発生しうる — `SELECT ... FOR UPDATE` による行ロックで対象組織の membership 行を直列化し、単一 SQL トランザクション内でカウント確認と更新を行うことで整合性を担保する（詳細は Design Decisions を参照）。
 - 招待キャンセル対象が既に `accepted`/`expired` などへ遷移済みの場合の扱いが曖昧になりうる — `status = 'pending'` の場合のみキャンセル可能とし、それ以外は明示的なエラーを返す。
 - 組織削除の同時実行（2つのリクエストが同時に削除を要求）— 2回目の削除は対象組織が既に存在しないため `organization-not-found` 相当のエラーとして扱う。
+- `MemberList` が独自にメンバー取得を行う旧設計のままだと、ロール別メール秘匿（Requirement 1.2/1.3）がコンポーネント境界を越えて破られるリスクがあった — `MembersPage` が唯一のデータ取得元となり、`MemberList` は props 経由でフィルタ済みデータのみを受け取る設計に修正済み（詳細は Components and Interfaces / MemberList を参照）。
 
 ## References
 - 内部: `docs/specs/5-organization-foundation/design.md` — 認可基盤の契約
