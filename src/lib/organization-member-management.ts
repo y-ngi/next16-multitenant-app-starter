@@ -18,7 +18,8 @@ export type MemberManagementFailureReason =
   | 'insufficient-role'
   | 'last-owner-protection'
   | 'invitation-not-pending'
-  | 'not-found';
+  | 'not-found'
+  | 'system-failure';
 
 export interface ViewableMember {
   readonly id: string;
@@ -645,6 +646,9 @@ export async function deleteOrganization(
     });
   } catch (error) {
     console.error('[deleteOrganization] Failed to delete organization:', error);
-    throw error;
+    return {
+      ok: false,
+      reason: 'system-failure',
+    };
   }
 }

@@ -1857,7 +1857,7 @@ describe('organization-member-management', () => {
       expect(db.transaction).not.toHaveBeenCalled();
     });
 
-    it('組織削除で例外が発生した場合は捕捉してログを記録し、例外を再送出すること', async () => {
+    it('組織削除で例外が発生した場合は捕捉してログを記録し、system-failure の失敗結果を返すこと（組織状態は維持される）', async () => {
       const deleteError = new Error('delete failed');
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const membershipLockChain = createLockedMembershipSelectChain([
@@ -1888,7 +1888,12 @@ describe('organization-member-management', () => {
         callback(asDbTransaction(tx))
       );
 
-      await expect(deleteOrganization({ headers, slug })).rejects.toThrow(deleteError);
+      const result = await deleteOrganization({ headers, slug });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: 'system-failure',
+      });
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         '[deleteOrganization] Failed to delete organization:',
         deleteError

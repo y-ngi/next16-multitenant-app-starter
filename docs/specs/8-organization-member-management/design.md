@@ -231,7 +231,8 @@ export type MemberManagementFailureReason =
   | 'insufficient-role'
   | 'last-owner-protection'
   | 'invitation-not-pending'
-  | 'not-found';
+  | 'not-found'
+  | 'system-failure'; // DB接続失敗等、想定外の例外が発生した場合（既存状態は維持される）
 
 export interface ViewableMember {
   readonly id: string;
@@ -410,7 +411,7 @@ export interface MemberListProps {
 - **認可エラー（`unauthenticated` / `not-member` / `insufficient-role`）**: 「権限がありません」を表示し、操作を実行しない。
 - **不変条件違反（`last-owner-protection`）**: 「少なくとも1人の owner が必要です。別のメンバーを owner に変更してください」を表示し、操作を実行しない。
 - **状態エラー（`invitation-not-pending` / `not-found`）**: 「対象の招待は既に処理済みか存在しません」を表示し、一覧を再取得する。
-- **システムエラー（DB接続失敗等）**: 「操作が完了しませんでした。もう一度お試しください」を表示し、既存状態を維持する（5.3 に対応）。
+- **システムエラー（DB接続失敗等）**: `system-failure` を返す。「操作が完了しませんでした。もう一度お試しください」を表示し、既存状態を維持する（5.3 に対応）。
 
 ## Testing Strategy
 
