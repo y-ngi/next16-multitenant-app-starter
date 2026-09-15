@@ -725,7 +725,7 @@ export async function respondToInvitation(
             .limit(1);
 
           invitationFailureReason =
-            currentInvitation && currentInvitation.expiresAt < updateAt ? 'expired' : 'already-used';
+            currentInvitation && currentInvitation.expiresAt <= updateAt ? 'expired' : 'already-used';
           return;
         }
 
@@ -817,7 +817,7 @@ export async function respondToInvitation(
         return {
           ok: false,
           error:
-            currentInvitation && currentInvitation.expiresAt < rejectedAt
+            currentInvitation && currentInvitation.expiresAt <= rejectedAt
               ? 'Invitation has expired'
               : 'Invitation has already been used',
         };
@@ -913,7 +913,7 @@ export async function getInvitations(
     const result = invitations.map((inv) => {
       // Calculate effective status
       let effectiveStatus = inv.status;
-      if (inv.status === 'pending' && inv.expiresAt < now) {
+      if (inv.status === 'pending' && inv.expiresAt <= now) {
         effectiveStatus = 'expired' as InvitationStatus;
       }
 

@@ -92,7 +92,7 @@ function createSelectWhereChain<T>(rows: T[]) {
   const promise = Promise.resolve(rows);
   const chain = {
     from: vi.fn(() => chain),
-    where: vi.fn(() => promise),
+    where: vi.fn(() => ({ for: vi.fn(() => promise) })),
   };
 
   return chain;
@@ -1075,14 +1075,17 @@ describe('organization-member-management', () => {
         ok: true,
         members: [
           {
-            ...members[0],
+            id: 'membership-1',
+            userId: 'user-1',
+            userName: 'Owner User',
+            displayName: 'オーナー',
             role: 'member',
+            joinedAt,
           },
           {
             id: 'membership-2',
             userId: 'user-2',
             userName: 'Co Owner User',
-            userEmail: 'co-owner@example.com',
             displayName: '共同オーナー',
             role: 'owner',
             joinedAt,

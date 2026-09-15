@@ -96,25 +96,16 @@ export default async function MembersPage({ params }: MembersPageProps) {
       </Card>
 
       {role === 'owner' ? (
-        invitationsFetchFailed ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>招待管理</CardTitle>
-              <CardDescription>招待一覧を読み込めませんでした。</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-destructive">
-                招待一覧を取得できませんでした。時間をおいて再読み込みしてください。
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <InvitationManager
-            organizationId={organizationId}
-            invitations={invitations}
-            onCancelInvitation={cancelInvitationAction.bind(null, organizationSlug)}
-          />
-        )
+        <InvitationManager
+          organizationId={organizationId}
+          invitations={invitations}
+          onCancelInvitation={cancelInvitationAction.bind(null, organizationSlug)}
+          listFetchError={
+            invitationsFetchFailed
+              ? '招待一覧を取得できませんでした。時間をおいて再読み込みしてください。'
+              : undefined
+          }
+        />
       ) : null}
     </div>
   );

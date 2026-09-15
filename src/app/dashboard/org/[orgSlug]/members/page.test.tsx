@@ -39,6 +39,7 @@ interface MockInvitationManagerProps {
   readonly organizationId: string;
   readonly invitations: readonly MockInvitationRecord[];
   readonly onCancelInvitation?: (invitationId: string) => Promise<unknown>;
+  readonly listFetchError?: string;
 }
 
 const memberListMock = vi.hoisted(() =>
@@ -55,7 +56,7 @@ const memberListMock = vi.hoisted(() =>
 );
 
 const invitationManagerMock = vi.hoisted(() =>
-  vi.fn(({ organizationId, invitations, onCancelInvitation }: MockInvitationManagerProps) => (
+  vi.fn(({ organizationId, invitations, onCancelInvitation, listFetchError }: MockInvitationManagerProps) => (
     <div
       data-testid="invitation-manager"
       data-organization-id={organizationId}
@@ -67,6 +68,7 @@ const invitationManagerMock = vi.hoisted(() =>
         <input id="invitation-manager-email" name="email" type="email" />
         <button type="submit">送信</button>
       </form>
+      {listFetchError ? <div>{listFetchError}</div> : null}
       {invitations.length === 0 ? <div>招待はまだありません</div> : null}
     </div>
   ))
@@ -302,7 +304,7 @@ describe('MembersPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('owner の招待取得に失敗した場合、InvitationManager の代わりにエラー表示を行うこと', async () => {
+  it('owner の招待取得に失敗した場合、InvitationManager を空一覧で表示しつつエラー通知すること', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     mockResolveOrgContext.mockResolvedValueOnce({
@@ -341,7 +343,8 @@ describe('MembersPage', () => {
     render(page);
 
     expect(screen.getByTestId('member-list')).toBeInTheDocument();
-    expect(screen.queryByTestId('invitation-manager')).not.toBeInTheDocument();
+    expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
+    expect(screen.getByTestId('invitation-manager')).toHaveAttribute('data-invitation-count', '0');
     expect(
       screen.getByText('招待一覧を取得できませんでした。時間をおいて再読み込みしてください。')
     ).toBeInTheDocument();

@@ -30,6 +30,11 @@ export interface InvitationManagerProps {
   readonly invitations: readonly InvitationRecord[];
   readonly onCancelInvitation?: (invitationId: string) => Promise<CancelInvitationResult>;
   readonly onInvitationCreated?: () => void;
+  /**
+   * 招待一覧の取得に失敗した場合に表示する通知メッセージ。
+   * 設定されている場合、招待履歴は空のまま表示し、招待作成フォームは引き続き利用可能にする。
+   */
+  readonly listFetchError?: string;
 }
 
 function getInvitationMutationErrorMessage(reason: MemberManagementFailureReason): string {
@@ -55,6 +60,7 @@ export function InvitationManager({
   invitations,
   onCancelInvitation,
   onInvitationCreated,
+  listFetchError,
 }: InvitationManagerProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -190,6 +196,9 @@ export function InvitationManager({
           <CardDescription>発行した招待の一覧と状態</CardDescription>
         </CardHeader>
         <CardContent>
+          {listFetchError ? (
+            <div className="mb-4 text-sm text-destructive">{listFetchError}</div>
+          ) : null}
           {invitations.length === 0 ? (
             <div className="text-sm text-muted-foreground">招待はまだありません</div>
           ) : (

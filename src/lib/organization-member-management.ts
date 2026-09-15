@@ -313,47 +313,55 @@ export async function ensureOwnerRemainsAfterChange(
 }
 
 export async function listMembersForViewer(input: MemberManagementActionInput): Promise<ListMembersResult> {
-  const accessResult = await requireOrganizationAccessBySlug({
-    headers: input.headers,
-    slug: input.slug,
-  });
+  try {
+    const accessResult = await requireOrganizationAccessBySlug({
+      headers: input.headers,
+      slug: input.slug,
+    });
 
-  if (!accessResult.ok) {
+    if (!accessResult.ok) {
+      return {
+        ok: false,
+        reason: accessResult.reason,
+      };
+    }
+
+    const membersFetchResult = await getOrganizationMembersForView({
+      headers: input.headers,
+      organizationId: accessResult.organizationId,
+      errorLogPrefix: '[listMembersForViewer]',
+    });
+
+    if (!membersFetchResult.ok) {
+      return {
+        ok: false,
+        reason: membersFetchResult.reason,
+      };
+    }
+
+    const members = membersFetchResult.members;
+    const currentViewerMembership = members.find((member) => member.userId === accessResult.userId);
+
+    if (!currentViewerMembership) {
+      return {
+        ok: false,
+        reason: 'not-member',
+      };
+    }
+
+    return {
+      ok: true,
+      organizationId: accessResult.organizationId,
+      viewerRole: currentViewerMembership.role,
+      members: toViewableMembersForRole(members, currentViewerMembership.role),
+    };
+  } catch (error) {
+    console.error('[listMembersForViewer] Unexpected error while listing members:', error);
     return {
       ok: false,
-      reason: accessResult.reason,
+      reason: 'system-failure',
     };
   }
-
-  const membersFetchResult = await getOrganizationMembersForView({
-    headers: input.headers,
-    organizationId: accessResult.organizationId,
-    errorLogPrefix: '[listMembersForViewer]',
-  });
-
-  if (!membersFetchResult.ok) {
-    return {
-      ok: false,
-      reason: membersFetchResult.reason,
-    };
-  }
-
-  const members = membersFetchResult.members;
-  const currentViewerMembership = members.find((member) => member.userId === accessResult.userId);
-
-  if (!currentViewerMembership) {
-    return {
-      ok: false,
-      reason: 'not-member',
-    };
-  }
-
-  return {
-    ok: true,
-    organizationId: accessResult.organizationId,
-    viewerRole: currentViewerMembership.role,
-    members: toViewableMembersForRole(members, currentViewerMembership.role),
-  };
 }
 
 export async function removeMember(
@@ -498,9 +506,16 @@ export async function changeMemberRole(
     return guardResult;
   }
 
+  // 自己対象の変更（actor が自分自身のロールを変更した）の場合、投影ロールは
+  // 変更後のロール（input.newRole）を使う。変更前の accessResult.role（owner）を
+  // 使うと、自己降格直後のレスポンスに owner 専用情報（全メンバーのメール等）が
+  // 混入してしまう
+  const projectionRole =
+    input.targetUserId === accessResult.userId ? input.newRole : accessResult.role;
+
   return {
     ok: true,
-    members: toViewableMembersForRole(nextMembers, accessResult.role),
+    members: toViewableMembersForRole(nextMembers, projectionRole),
   };
 }
 
@@ -600,12 +615,11 @@ export async function cancelInvitation(
         };
       }
 
-      // ロック取得後（＝コミット直前）の時刻で期限を判定する。ロック待ちで
-      // ブロックされている間に期限切れになったケースを、ロック取得前の
-      // 古い `now` で判定してキャンセル成功させてしまわないようにするため
-      const now = new Date();
-
-      const invitations = await tx
+      // 招待行自体をロックしてから、その直後の時刻で期限を判定する。ロック取得前の
+      // `now` を UPDATE の WHERE 条件にまで使い回すと、招待行のロック待ちで
+      // ブロックされている間に実際には期限切れになったケースを、古い `now` で
+      // 判定してキャンセルを成功させてしまう恐れがあるため
+      const invitationsQuery = tx
         .select({
           id: invitation.id,
           organizationId: invitation.organizationId,
@@ -616,6 +630,14 @@ export async function cancelInvitation(
         .where(
           and(eq(invitation.id, input.invitationId), eq(invitation.organizationId, accessResult.organizationId))
         );
+
+      const invitations = await executeLockingSelect(
+        invitationsQuery as unknown as LockableQuery<
+          { id: string; organizationId: string; status: string; expiresAt: Date }[]
+        >
+      );
+
+      const now = new Date();
 
       const targetInvitation = invitations[0];
 
